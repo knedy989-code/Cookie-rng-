@@ -1,0 +1,2133 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Cookie RNG: Infinite Crumb</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Fredoka:wght@400;600&display=swap" rel="stylesheet">
+    <!-- Babel for in-browser transpilation of TSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+      body {
+        font-family: 'Inter', sans-serif;
+        background-color: #05010a; /* Updated to match App background */
+        color: #f3f4f6;
+        overflow-x: hidden;
+      }
+      h1, h2, h3, .font-display {
+        font-family: 'Fredoka', sans-serif;
+      }
+      .cookie-spin {
+        animation: spin-slow 20s linear infinite;
+      }
+      @keyframes spin-slow {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      /* Click Effects */
+      @keyframes floatUp {
+        0% { transform: translateY(0) scale(1); opacity: 1; }
+        100% { transform: translateY(-80px) scale(1.2); opacity: 0; }
+      }
+      @keyframes crumble {
+        0% { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
+        100% { transform: translate(var(--tx), var(--ty)) rotate(var(--r)) scale(0); opacity: 0; }
+      }
+      /* UI Animations */
+      @keyframes popIn {
+        0% { transform: scale(0.8); opacity: 0; }
+        100% { transform: scale(1); opacity: 1; }
+      }
+      @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+      }
+      @keyframes slideUp {
+        from { transform: translateY(100%); opacity: 0; }
+        to { transform: translateY(0); opacity: 1; }
+      }
+      @keyframes shimmer {
+        0% { transform: translateX(-200%) skewX(12deg); }
+        100% { transform: translateX(200%) skewX(12deg); }
+      }
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #2d2d2d; 
+      }
+      ::-webkit-scrollbar-thumb {
+        background: #555; 
+        border-radius: 4px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: #777; 
+      }
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .no-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+    </style>
+    
+    <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
+    "lucide-react": "https://esm.sh/lucide-react@^0.562.0",
+    "react-dom/client": "https://esm.sh/react-dom@^19.2.3/client",
+    "react": "https://esm.sh/react@^19.2.3",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/"
+  }
+}
+</script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module" data-presets="typescript,react">
+      import React, { useState, useEffect, useCallback, useRef } from 'react';
+      import ReactDOM from 'react-dom/client';
+      import { GoogleGenAI, Type } from "@google/genai";
+      import { 
+        Sparkles, Cookie as CookieIcon, Crown, Zap, Star, Ghost, Sun, Flame, Moon, 
+        Hammer, Shield, Gift, Timer, Package, Container, Gem, Infinity, Diamond, 
+        Ticket, Battery, RotateCcw, LayoutGrid, ShoppingBag, ArrowUpCircle, 
+        Volume2, VolumeX, X, Terminal, Scroll, Dice5, Monitor, MonitorX,
+        CheckCircle, Trash2, MousePointer2, Briefcase, Clover, Clock, 
+        ChevronsUp, Target, ShieldCheck, Scale, Loader2, Coins, Trophy, 
+        Info, BrainCircuit, Play, Square, Settings2, Check, Lock, Grid3X3
+      } from 'lucide-react';
+
+      // --- POLYFILLS & SETUP ---
+      window.process = window.process || { env: { API_KEY: '' } };
+
+      // --- TYPES & CONSTANTS (Converted to Objects for Babel Compatibility) ---
+      const Rarity = {
+        COMMON: 'Common',
+        UNCOMMON: 'Uncommon',
+        RARE: 'Rare',
+        ULTRA_RARE: 'Ultra Rare',
+        EPIC: 'Epic',
+        LEGENDARY: 'Legendary',
+        MYTHICAL: 'Mythical',
+        ASCENDED: 'Ascended',
+        DIVINE: 'Divine'
+      };
+
+      const QuestType = {
+        TOTAL_CLICKS: 'TOTAL_CLICKS',
+        TOTAL_EARNED: 'TOTAL_EARNED',
+        COLLECTION_SIZE: 'COLLECTION_SIZE',
+        UPGRADE_LEVELS: 'UPGRADE_LEVELS'
+      };
+
+      const RARITY_COLORS = {
+        [Rarity.COMMON]: '#A0A0A0',      
+        [Rarity.UNCOMMON]: '#4ADE80',    
+        [Rarity.RARE]: '#60A5FA',        
+        [Rarity.ULTRA_RARE]: '#9333EA',  
+        [Rarity.EPIC]: '#C084FC',        
+        [Rarity.LEGENDARY]: '#FACC15',   
+        [Rarity.MYTHICAL]: '#F43F5E',    
+        [Rarity.ASCENDED]: '#22D3EE',    
+        [Rarity.DIVINE]: '#FFFFFF',      
+      };
+
+      const RARITY_DURABILITY = {
+        [Rarity.COMMON]: 50,
+        [Rarity.UNCOMMON]: 100,
+        [Rarity.RARE]: 250,
+        [Rarity.ULTRA_RARE]: 600,
+        [Rarity.EPIC]: 1000,
+        [Rarity.LEGENDARY]: 2500,
+        [Rarity.MYTHICAL]: 5000,
+        [Rarity.ASCENDED]: 10000,
+        [Rarity.DIVINE]: 25000,
+      };
+
+      const RARITY_WEIGHTS = {
+        [Rarity.COMMON]: 5000,
+        [Rarity.UNCOMMON]: 3000,
+        [Rarity.RARE]: 1500,
+        [Rarity.ULTRA_RARE]: 400,
+        [Rarity.EPIC]: 0,
+        [Rarity.LEGENDARY]: 0,
+        [Rarity.MYTHICAL]: 0,
+        [Rarity.ASCENDED]: 0,
+        [Rarity.DIVINE]: 0, 
+      };
+
+      const RARE_ROLL_WEIGHTS = {
+        [Rarity.COMMON]: 4500,
+        [Rarity.UNCOMMON]: 0,
+        [Rarity.RARE]: 3000,
+        [Rarity.ULTRA_RARE]: 500,
+        [Rarity.EPIC]: 0,
+        [Rarity.LEGENDARY]: 10,
+        [Rarity.MYTHICAL]: 0,
+        [Rarity.ASCENDED]: 0,
+        [Rarity.DIVINE]: 0,
+      };
+
+      const EPIC_ROLL_WEIGHTS = {
+        [Rarity.COMMON]: 0,
+        [Rarity.UNCOMMON]: 0,
+        [Rarity.RARE]: 3000,
+        [Rarity.ULTRA_RARE]: 4000,
+        [Rarity.EPIC]: 2500,
+        [Rarity.LEGENDARY]: 500,
+        [Rarity.MYTHICAL]: 0,
+        [Rarity.ASCENDED]: 0,
+        [Rarity.DIVINE]: 0,
+      };
+
+      const MYTHICAL_ROLL_WEIGHTS = {
+        [Rarity.COMMON]: 0,
+        [Rarity.UNCOMMON]: 0,
+        [Rarity.RARE]: 4000, 
+        [Rarity.ULTRA_RARE]: 3000,
+        [Rarity.EPIC]: 2000,
+        [Rarity.LEGENDARY]: 800,
+        [Rarity.MYTHICAL]: 200, 
+        [Rarity.ASCENDED]: 0,
+        [Rarity.DIVINE]: 0,
+      };
+
+      const ASCENDED_ROLL_WEIGHTS = {
+        [Rarity.COMMON]: 0,
+        [Rarity.UNCOMMON]: 0,
+        [Rarity.RARE]: 0,
+        [Rarity.ULTRA_RARE]: 0,
+        [Rarity.EPIC]: 0,
+        [Rarity.LEGENDARY]: 6000, 
+        [Rarity.MYTHICAL]: 3000,  
+        [Rarity.ASCENDED]: 900,   
+        [Rarity.DIVINE]: 100,     
+      };
+
+      const UPGRADE_COSTS = {
+        clickPower: (level) => Math.floor(50 * Math.pow(1.5, level)), 
+        luck: (level) => {
+          switch (level) {
+            case 0: return 250;
+            case 1: return 500;   
+            case 2: return 600;   
+            case 3: return 700;   
+            case 4: return 888;   
+            case 5: return 1000;  
+            default: return Math.floor(1000 * Math.pow(1.5, level - 4));
+          }
+        },
+        autoClicker: (level) => {
+          switch (level) {
+            case 0: return 300;   
+            case 1: return 500;   
+            case 2: return 680;   
+            case 3: return 790;   
+            case 4: return 1000;  
+            default: return Math.floor(1000 * Math.pow(1.5, level - 4));
+          }
+        },
+        crit: (level) => Math.floor(500 * Math.pow(1.6, level)),
+        durability: (level) => Math.floor(800 * Math.pow(1.8, level)),
+        barter: (level) => Math.floor(1500 * Math.pow(2.0, level)),
+        ascension: (level) => {
+            if (level === 0) return 100000; 
+            if (level === 1) return 500000; 
+            return 999999999;
+        }
+      };
+
+      const ROLL_COST = 100;
+      const RARE_ROLL_COST = 200;
+      const EPIC_ROLL_COST = 500;
+      const MYTHICAL_ROLL_COST = 1000;
+      const ASCENDED_ROLL_COST = 200000;
+
+      const SHOP_ITEMS = [
+        {
+          id: 'repair_kit',
+          name: "Baker's Glue",
+          description: "Repairs the currently equipped cookie by 50%.",
+          cost: 250,
+          icon: Hammer,
+          color: 'text-blue-400',
+          bgColor: 'bg-blue-900/20'
+        },
+        {
+          id: 'nano_patch',
+          name: "Nano Patch",
+          description: "Fully restores durability (100%).",
+          cost: 600,
+          icon: RotateCcw,
+          color: 'text-cyan-400',
+          bgColor: 'bg-cyan-900/20'
+        },
+        {
+          id: 'shield',
+          name: "Titanium Wrapper",
+          description: "Prevents durability loss for the next 100 clicks.",
+          cost: 500,
+          icon: Shield,
+          color: 'text-emerald-400',
+          bgColor: 'bg-emerald-900/20'
+        },
+        {
+          id: 'buff_sugar',
+          name: "Sugar Rush Vial",
+          description: "Doubles your click power for 60 seconds.",
+          cost: 400,
+          icon: Zap,
+          color: 'text-yellow-400',
+          bgColor: 'bg-yellow-900/20'
+        },
+        {
+          id: 'plasma_battery',
+          name: "Plasma Battery",
+          description: "Overcharge! 5x Click Power for 40 seconds.",
+          cost: 1000,
+          icon: Battery,
+          color: 'text-red-500',
+          bgColor: 'bg-red-900/20'
+        },
+        {
+          id: 'clicker_ticket',
+          name: 'Arcade Token',
+          description: 'One play for any minigame (Flip, Speed, Slots).',
+          cost: 120,
+          icon: Ticket,
+          color: 'text-pink-400',
+          bgColor: 'bg-pink-900/20'
+        }
+      ];
+
+      const BUNDLES = [
+        {
+          id: 'b_safety',
+          name: 'Safety First',
+          description: 'Keep your cookies in one piece.',
+          items: [
+            { id: 'repair_kit', count: 1 },
+            { id: 'shield', count: 1 }
+          ],
+          cost: 550,
+          originalCost: 750, 
+          duration: 15000, // 15s
+          iconColor: 'text-blue-400'
+        },
+        {
+          id: 'b_rush',
+          name: 'Adrenaline Pack',
+          description: 'Double the sugar, double the speed.',
+          items: [
+            { id: 'buff_sugar', count: 2 }
+          ],
+          cost: 600,
+          originalCost: 800,
+          duration: 12000, // 12s
+          iconColor: 'text-yellow-400'
+        },
+        {
+          id: 'b_mega',
+          name: 'Mechanic Special',
+          description: 'Everything you need to keep clicking.',
+          items: [
+            { id: 'repair_kit', count: 2 },
+            { id: 'shield', count: 2 },
+            { id: 'buff_sugar', count: 1 }
+          ],
+          cost: 1200,
+          originalCost: 1900,
+          duration: 20000, // 20s
+          iconColor: 'text-emerald-400'
+        }
+      ];
+
+      const EXCLUSIVE_COOKIES = {
+          DIAMOND: { 
+              id: 'c_diamond', 
+              name: 'Diamond Cookie', 
+              description: 'Hardest material known to baker.', 
+              rarity: Rarity.LEGENDARY, 
+              baseValue: 15, 
+              colorHex: '#b9f2ff',
+              maxDurability: 300 
+          },
+          MOCHI: { 
+              id: 'c_mochi', 
+              name: 'Mochi Cookie', 
+              description: 'Soft, chewy, and incredibly valuable.', 
+              rarity: Rarity.MYTHICAL, 
+              baseValue: 5, 
+              colorHex: '#ffb7b2',
+              maxDurability: 200 
+          }
+      };
+
+      const CRATE_DEFS = [
+        {
+          id: 'crate_rusty',
+          name: 'Rusty Lockbox',
+          cost: 500,
+          description: 'A rusty old box. Usually contains pocket change.',
+          color: 'text-amber-700',
+          borderColor: 'border-amber-700/50',
+          bgColor: 'bg-amber-900/10',
+          icon: Package,
+          contents: [
+            { label: "100 - 300 Bits", chance: 20, type: 'bad' },
+            { label: "400 - 900 Bits", chance: 70, type: 'common' },
+            { label: "1,000 - 2,000 Bits", chance: 10, type: 'rare' },
+          ]
+        },
+        {
+          id: 'crate_iron',
+          name: 'Iron Strongbox',
+          cost: 2500,
+          description: 'Sturdy and reliable. Good bits and occasional repairs.',
+          color: 'text-slate-300',
+          borderColor: 'border-slate-400/50',
+          bgColor: 'bg-slate-800/50',
+          icon: Container,
+          contents: [
+            { label: "Repair Kit (Full Heal)", chance: 30, type: 'rare' },
+            { label: "1,500 - 2,500 Bits", chance: 50, type: 'common' },
+            { label: "3,000 - 6,000 Bits", chance: 20, type: 'epic' },
+          ]
+        },
+        {
+          id: 'crate_gilded',
+          name: 'Gilded Treasury',
+          cost: 10000,
+          description: 'High stakes, high rewards. Jackpots and multipliers inside.',
+          color: 'text-yellow-400',
+          borderColor: 'border-yellow-500/50',
+          bgColor: 'bg-yellow-900/20',
+          icon: Gem,
+          contents: [
+            { label: "5,000 - 8,000 Bits", chance: 40, type: 'bad' },
+            { label: "12,000 - 20,000 Bits", chance: 40, type: 'common' },
+            { label: "Frenzy (5x Power / 20s)", chance: 15, type: 'epic' },
+            { label: "JACKPOT (50,000 Bits)", chance: 5, type: 'legendary' },
+          ]
+        },
+        {
+          id: 'crate_diamond',
+          name: 'Shiny Diamond Crate',
+          cost: 50000,
+          description: 'The ultimate gamble.',
+          color: 'text-cyan-400',
+          borderColor: 'border-cyan-400/50',
+          bgColor: 'bg-cyan-900/20',
+          icon: Diamond,
+          contents: [
+            { label: "5,000 - 10,000 Bits", chance: 75, type: 'common' },
+            { label: "Frenzy (5x Power / 20s)", chance: 0.45, type: 'rare' },
+            { label: "Diamond Cookie", chance: 25, type: 'legendary' },
+            { label: "Auto Clicker+ (Fast / 20s)", chance: 20, type: 'rare' },
+            { label: "50,000 Bits", chance: 0.10, type: 'epic' },
+            { label: "Mochi Cookie", chance: 0.1, type: 'mythical' },
+          ]
+        }
+      ];
+
+      const QUEST_DEFS = [
+        // Clicks
+        { id: 'q_click_1', name: 'Baby Steps', description: 'Click the cookie 50 times.', type: QuestType.TOTAL_CLICKS, target: 50, reward: 200 },
+        { id: 'q_click_2', name: 'Finger Workout', description: 'Click the cookie 250 times.', type: QuestType.TOTAL_CLICKS, target: 250, reward: 800 },
+        { id: 'q_click_3', name: 'Carpal Tunnel', description: 'Click the cookie 1,000 times.', type: QuestType.TOTAL_CLICKS, target: 1000, reward: 2500 },
+        { id: 'q_click_4', name: 'Machine', description: 'Click the cookie 5,000 times.', type: QuestType.TOTAL_CLICKS, target: 5000, reward: 10000 },
+        
+        // Earnings
+        { id: 'q_earn_1', name: 'Pocket Change', description: 'Earn 1,000 Bits total.', type: QuestType.TOTAL_EARNED, target: 1000, reward: 500 },
+        { id: 'q_earn_2', name: 'Entrepreneur', description: 'Earn 10,000 Bits total.', type: QuestType.TOTAL_EARNED, target: 10000, reward: 2000 },
+        { id: 'q_earn_3', name: 'Tycoon', description: 'Earn 100,000 Bits total.', type: QuestType.TOTAL_EARNED, target: 100000, reward: 15000 },
+        { id: 'q_earn_4', name: 'Millionaire', description: 'Earn 1,000,000 Bits total.', type: QuestType.TOTAL_EARNED, target: 1000000, reward: 100000 },
+
+        // Collection
+        { id: 'q_col_1', name: 'Collector I', description: 'Own 5 unique cookies.', type: QuestType.COLLECTION_SIZE, target: 5, reward: 1000 },
+        { id: 'q_col_2', name: 'Collector II', description: 'Own 15 unique cookies.', type: QuestType.COLLECTION_SIZE, target: 15, reward: 5000 },
+        { id: 'q_col_3', name: 'Curator', description: 'Own 30 unique cookies.', type: QuestType.COLLECTION_SIZE, target: 30, reward: 20000 },
+
+        // Upgrades
+        { id: 'q_upg_1', name: 'Tech Savvy', description: 'Have 5 total upgrade levels.', type: QuestType.UPGRADE_LEVELS, target: 5, reward: 1500 },
+        { id: 'q_upg_2', name: 'Maximized', description: 'Have 15 total upgrade levels.', type: QuestType.UPGRADE_LEVELS, target: 15, reward: 10000 },
+      ];
+
+      const STANDARD_COOKIES = [
+        { id: 'c_rust', name: 'Rust Cookie', description: 'Tastes like old metal.', rarity: Rarity.COMMON, baseValue: 1, colorHex: '#8B4513' },
+        { id: 'c_sugar', name: 'Sugar Cookie', description: 'Just pure sugar.', rarity: Rarity.COMMON, baseValue: 1, colorHex: '#F5F5DC' },
+        { id: 'c_ice', name: 'Ice Cookie', description: 'Freezing cold to the touch.', rarity: Rarity.UNCOMMON, baseValue: 1.5, colorHex: '#A5F2F3' },
+        { id: 'c_hard', name: 'Hard Cookie', description: 'You might break a tooth.', rarity: Rarity.UNCOMMON, baseValue: 1.6, colorHex: '#708090' },
+        { id: 'c_red', name: 'Red Velvet', description: 'Rich and smooth.', rarity: Rarity.RARE, baseValue: 2, colorHex: '#990000' },
+        { id: 'c_macha', name: 'Macha Delight', description: 'Earthy green tea flavor.', rarity: Rarity.RARE, baseValue: 2.4, colorHex: '#90EE90' },
+        { id: 'c_smoke', name: 'Smoke Cookie', description: 'Made of solidified smoke.', rarity: Rarity.ULTRA_RARE, baseValue: 2.8, colorHex: '#696969' },
+        { id: 'c_dark', name: 'Dark Cookie', description: 'Absorbs all light.', rarity: Rarity.ULTRA_RARE, baseValue: 3.0, colorHex: '#111111' },
+      ];
+
+      const RARE_ROLL_COOKIES = [
+        { id: 'c_cloud', name: 'Cloud Cookie', description: 'Light as air.', rarity: Rarity.COMMON, baseValue: 2.5, colorHex: '#E0FFFF' },
+        { id: 'c_basic', name: 'Basic Batch', description: 'A standard issue cookie.', rarity: Rarity.COMMON, baseValue: 1.5, colorHex: '#C0C0C0' },
+        { id: 'c_red_velvet', name: 'Red Velvet', description: 'Rich and smooth red delight.', rarity: Rarity.RARE, baseValue: 2, colorHex: '#990000' },
+        { id: 'c_scookie', name: 'Scookie', description: 'A mysterious striped cookie.', rarity: Rarity.RARE, baseValue: 3, colorHex: '#5D4037' },
+        { id: 'c_gookie', name: 'Gookie', description: 'Ideally gooey inside.', rarity: Rarity.RARE, baseValue: 3.5, colorHex: '#76FF03' },
+        { id: 'c_ricky', name: 'Ricky Cookie', description: 'The fan favorite.', rarity: Rarity.RARE, baseValue: 3.9, colorHex: '#FF4081' },
+        { id: 'c_cook', name: 'Cook Cookie', description: 'Baked to absolute perfection.', rarity: Rarity.ULTRA_RARE, baseValue: 4, colorHex: '#6200EA' },
+        { id: 'c_super', name: 'Super Cookie', description: 'Radiating immense power.', rarity: Rarity.LEGENDARY, baseValue: 5, colorHex: '#FFD700' },
+      ];
+
+      const EPIC_ROLL_COOKIES = [
+          { id: 'c_gold_leaf', name: 'Gold Leaf', description: 'Covered in edible gold.', rarity: Rarity.RARE, baseValue: 6, colorHex: '#FFD700' },
+          { id: 'c_emerald', name: 'Emerald Chip', description: 'Hard as a gem.', rarity: Rarity.ULTRA_RARE, baseValue: 7, colorHex: '#50C878' },
+          { id: 'c_amethyst', name: 'Amethyst Bite', description: 'Crystalline crunch.', rarity: Rarity.ULTRA_RARE, baseValue: 7.5, colorHex: '#9966CC' },
+          { id: 'c_fortune', name: 'Fortune Cookie', description: 'Contains a vague prophecy.', rarity: Rarity.EPIC, baseValue: 10, colorHex: '#F4C430' },
+          { id: 'c_sapphire', name: 'Sapphire Swirl', description: 'Deep blue mystery.', rarity: Rarity.EPIC, baseValue: 11, colorHex: '#0F52BA' },
+          { id: 'c_ruby', name: 'Ruby Glaze', description: 'Red hot value.', rarity: Rarity.LEGENDARY, baseValue: 18, colorHex: '#E0115F' },
+      ];
+
+      const MYTHICAL_ROLL_COOKIES = [
+          { id: 'c_golden_chip', name: 'Golden Chip', description: 'A rare cookie with real gold flakes.', rarity: Rarity.RARE, baseValue: 5, colorHex: '#DAA520' },
+          { id: 'c_plasma', name: 'Plasma Cookie', description: 'Vibrating with high energy.', rarity: Rarity.EPIC, baseValue: 8, colorHex: '#D946EF' },
+          { id: 'c_magma', name: 'Magma Cookie', description: 'Still molten on the inside.', rarity: Rarity.EPIC, baseValue: 8.5, colorHex: '#EA580C' },
+          { id: 'c_dragon', name: 'Dragon Scale', description: 'Forged in dragonfire.', rarity: Rarity.LEGENDARY, baseValue: 12, colorHex: '#DC143C' },
+          { id: 'c_unicorn', name: 'Unicorn Horn', description: 'Spiral shaped and magical.', rarity: Rarity.LEGENDARY, baseValue: 13, colorHex: '#EC4899' },
+          { id: 'c_super_myth', name: 'Super Cookie', description: 'Radiating immense power.', rarity: Rarity.LEGENDARY, baseValue: 5, colorHex: '#FFD700' }, 
+          { id: 'c_nebula', name: 'Nebula Swirl', description: 'Contains a baby universe.', rarity: Rarity.MYTHICAL, baseValue: 25, colorHex: '#4B0082' },
+          { id: 'c_void', name: 'Void Biscuit', description: 'Stares back at you.', rarity: Rarity.MYTHICAL, baseValue: 28, colorHex: '#000000' },
+          { id: 'c_chrono', name: 'Chrono-Crunch', description: 'Tastes like time itself.', rarity: Rarity.MYTHICAL, baseValue: 30, colorHex: '#06B6D4' },
+      ];
+
+      const ASCENDED_ROLL_COOKIES = [
+          { id: 'c_universe', name: 'Universe Cookie', description: 'Contains the dust of a billion stars.', rarity: Rarity.LEGENDARY, baseValue: 14, colorHex: '#4B0082' },
+          { id: 'c_blackhole', name: 'Black Hole', description: 'Consumes light, emits flavor.', rarity: Rarity.LEGENDARY, baseValue: 20, colorHex: '#121212' },
+          { id: 'c_void_cookie', name: 'Void Cookie', description: 'Absolute emptiness, absolute power.', rarity: Rarity.MYTHICAL, baseValue: 30, colorHex: '#2E0249' },
+          { id: 'c_lord', name: 'Lord of Cookies', description: 'Bow before the Lord.', rarity: Rarity.ASCENDED, baseValue: 50, colorHex: '#22D3EE' },
+          { id: 'c_god', name: 'Cookie God', description: 'The Creator of all crumbs.', rarity: Rarity.DIVINE, baseValue: 350, colorHex: '#FFFFFF' },
+      ];
+
+      const RARITY_ICONS = {
+        [Rarity.COMMON]: CookieIcon,
+        [Rarity.UNCOMMON]: Zap,
+        [Rarity.RARE]: Star,
+        [Rarity.ULTRA_RARE]: Flame,
+        [Rarity.EPIC]: Sparkles,
+        [Rarity.LEGENDARY]: Crown,
+        [Rarity.MYTHICAL]: Ghost,
+        [Rarity.ASCENDED]: Infinity,
+        [Rarity.DIVINE]: Sun,
+      };
+
+      // --- GEMINI SERVICE ---
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+
+      const generateOracleCookie = async () => {
+        if (!process.env.API_KEY) {
+          throw new Error("API Key missing");
+        }
+
+        const modelId = "gemini-3-flash-preview"; 
+
+        const prompt = `
+          You are the Oracle Oven, a mythical entity that bakes cookies with divine properties.
+          Create a unique, fantasy-themed cookie.
+          
+          The cookie should be:
+          - Rarity: Divine (Extremely powerful and unique)
+          - Name: Creative, mythical, or sci-fi inspired.
+          - Description: A one-sentence lore description.
+          - ColorHex: A hex color code representing the cookie's aura.
+          - BaseValue: A number between 80 and 200.
+
+          Return the result in strictly valid JSON format matching the schema.
+        `;
+
+        try {
+          const response = await ai.models.generateContent({
+            model: modelId,
+            contents: prompt,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING },
+                  description: { type: Type.STRING },
+                  colorHex: { type: Type.STRING },
+                  baseValue: { type: Type.NUMBER },
+                },
+                required: ["name", "description", "colorHex", "baseValue"],
+              },
+            },
+          });
+
+          const text = response.text;
+          if (!text) throw new Error("No response from Oracle Oven");
+
+          const data = JSON.parse(text);
+
+          return {
+            name: data.name,
+            description: data.description,
+            rarity: Rarity.DIVINE,
+            baseValue: data.baseValue,
+            colorHex: data.colorHex,
+            isAiGenerated: true,
+          };
+        } catch (error) {
+          console.error("Oracle Oven malfunctioned:", error);
+          return {
+            name: "Glitch Cookie",
+            description: "The Oracle Oven sputtered and produced this anomaly.",
+            rarity: Rarity.DIVINE,
+            baseValue: 77,
+            colorHex: "#333333",
+            isAiGenerated: true,
+          };
+        }
+      };
+
+      // --- COMPONENT: CookieClicker ---
+      const CookieClicker = ({ state, onCookieClick, clickPower, selectedCookie, soundEnabled, critChance, antiLag = false }) => {
+        const [isClicking, setIsClicking] = useState(false);
+        const [particles, setParticles] = useState([]);
+        const [crumbs, setCrumbs] = useState([]);
+        const particleIdCounter = useRef(0);
+        const audioCtxRef = useRef(null);
+
+        const cookieColor = selectedCookie ? selectedCookie.colorHex : '#D2691E';
+
+        const playCrunchSound = (isCrit) => {
+          try {
+              if (!audioCtxRef.current) {
+                  audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+              }
+              const ctx = audioCtxRef.current;
+              if (ctx.state === 'suspended') ctx.resume();
+
+              const bufferSize = ctx.sampleRate * 0.1; 
+              const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+              const data = buffer.getChannelData(0);
+              for (let i = 0; i < bufferSize; i++) {
+                  data[i] = Math.random() * 2 - 1;
+              }
+
+              const noise = ctx.createBufferSource();
+              noise.buffer = buffer;
+              const filter = ctx.createBiquadFilter();
+              filter.type = 'lowpass';
+              filter.frequency.setValueAtTime(isCrit ? 3000 : 1000, ctx.currentTime);
+              filter.frequency.linearRampToValueAtTime(100, ctx.currentTime + 0.1);
+
+              const gain = ctx.createGain();
+              gain.gain.setValueAtTime(isCrit ? 0.6 : 0.4, ctx.currentTime);
+              gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.1);
+
+              noise.playbackRate.value = (isCrit ? 1.2 : 0.8) + Math.random() * 0.4;
+              noise.connect(filter);
+              filter.connect(gain);
+              gain.connect(ctx.destination);
+              noise.start();
+          } catch (e) {
+              console.warn("Audio play failed", e);
+          }
+        };
+
+        const handleClick = useCallback((e) => {
+          const isCritRoll = Math.random() < critChance;
+          const isForceCrit = state.activeEffects.clickMultiplier > 1;
+          const isCrit = isCritRoll || isForceCrit;
+
+          onCookieClick(isCrit);
+          
+          if (soundEnabled) playCrunchSound(isCrit);
+          
+          setIsClicking(true);
+          setTimeout(() => setIsClicking(false), 50);
+
+          if (antiLag) return;
+
+          const rect = e.currentTarget.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+
+          const displayVal = (clickPower * (isCrit ? (isForceCrit ? 1 : 3) : 1)).toFixed(1); 
+          const newParticle = {
+            id: particleIdCounter.current++,
+            x,
+            y,
+            value: `${isCrit ? 'CRIT! +' : '+'}${displayVal}`,
+            isCrit
+          };
+
+          setParticles(prev => [...prev, newParticle]);
+
+          const crumbCount = (isCrit ? 15 : 8) + Math.floor(Math.random() * 5); 
+          const newCrumbs = [];
+          for (let i = 0; i < crumbCount; i++) {
+              const angle = Math.random() * Math.PI * 2;
+              const velocity = Math.random() * (isCrit ? 200 : 150) + 50; 
+              newCrumbs.push({
+                  id: particleIdCounter.current++,
+                  x,
+                  y,
+                  tx: Math.cos(angle) * velocity,
+                  ty: Math.sin(angle) * velocity,
+                  r: Math.random() * 720 - 360,
+                  size: Math.random() * 8 + 4,
+                  color: cookieColor
+              });
+          }
+
+          setCrumbs(prev => [...prev, ...newCrumbs]);
+          setTimeout(() => setParticles(prev => prev.filter(p => p.id !== newParticle.id)), 1000);
+          setTimeout(() => {
+              const idsToRemove = new Set(newCrumbs.map(c => c.id));
+              setCrumbs(prev => prev.filter(c => !idsToRemove.has(c.id)));
+          }, 800);
+        }, [onCookieClick, clickPower, cookieColor, state.activeEffects.clickMultiplier, soundEnabled, critChance, antiLag]);
+
+        const currentDurability = selectedCookie?.durability ?? 0;
+        const maxDurability = selectedCookie?.maxDurability ?? 1;
+        const durabilityPct = (currentDurability / maxDurability) * 100;
+        const showCracksLight = selectedCookie && durabilityPct < 75;
+        const showCracksMedium = selectedCookie && durabilityPct < 50;
+        const showCracksHeavy = selectedCookie && durabilityPct < 25;
+
+        let meterColor = 'bg-emerald-500';
+        if (durabilityPct < 50) meterColor = 'bg-yellow-500';
+        if (durabilityPct < 25) meterColor = 'bg-red-600 animate-pulse';
+
+        const hasTimeShield = state.activeEffects.shieldEndTime > Date.now();
+        const hasShield = state.activeEffects.protectedClicks > 0 || hasTimeShield;
+        const hasBuff = state.activeEffects.clickMultiplier > 1;
+
+        return (
+          <div className="flex flex-col items-center justify-center py-10 relative">
+            <div className="relative">
+              {!antiLag && hasBuff && (
+                  <div className="absolute inset-[-20px] rounded-full border-4 border-yellow-400/50 animate-spin-slow opacity-60 pointer-events-none z-0 border-dashed"></div>
+              )}
+              {!antiLag && hasShield && (
+                  <div className="absolute inset-[-10px] rounded-full bg-cyan-500/10 border border-cyan-400/50 shadow-[0_0_20px_rgba(34,211,238,0.3)] animate-pulse pointer-events-none z-10"></div>
+              )}
+
+              <button
+                onClick={handleClick}
+                className={`
+                  relative w-64 h-64 md:w-80 md:h-80 rounded-full 
+                  transition-all duration-75 ease-out
+                  focus:outline-none select-none z-20
+                  ${isClicking ? 'scale-90 brightness-90' : 'scale-100 hover:scale-105 hover:brightness-110'}
+                `}
+                style={{
+                  background: `radial-gradient(circle at 30% 30%, ${cookieColor}, #1a1a1a)`,
+                  boxShadow: antiLag ? 'none' : `0 0 ${isClicking ? '30px' : '60px'} ${cookieColor}40`,
+                }}
+              >
+                {!antiLag && (
+                   <div className="absolute inset-0 rounded-full opacity-20 pointer-events-none" 
+                        style={{ backgroundImage: 'radial-gradient(circle, #000 2px, transparent 2.5px)', backgroundSize: '30px 30px' }}>
+                   </div>
+                )}
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                   {!selectedCookie && <CookieIcon size={120} className="text-white opacity-20" />}
+                   {selectedCookie && (
+                     <div className="text-white/30 font-display text-4xl uppercase tracking-widest font-bold rotate-[-15deg]">
+                       {selectedCookie.name.split(' ')[0]}
+                     </div>
+                   )}
+                </div>
+                {selectedCookie && (
+                  <svg className="absolute inset-0 w-full h-full pointer-events-none opacity-60" viewBox="0 0 100 100">
+                     {showCracksLight && (
+                       <path d="M 20 20 L 30 35 L 25 45" fill="none" stroke="black" strokeWidth="0.5" />
+                     )}
+                     {showCracksMedium && (
+                       <>
+                         <path d="M 80 80 L 70 60 L 75 50" fill="none" stroke="black" strokeWidth="0.8" />
+                         <path d="M 50 10 L 50 25 L 55 30" fill="none" stroke="black" strokeWidth="0.6" />
+                       </>
+                     )}
+                     {showCracksHeavy && (
+                       <>
+                          <path d="M 10 50 L 30 50 L 40 55 M 60 90 L 60 70 L 50 60" fill="none" stroke="black" strokeWidth="1" />
+                          <path d="M 90 20 L 70 40" fill="none" stroke="black" strokeWidth="1" />
+                       </>
+                     )}
+                  </svg>
+                )}
+              </button>
+
+              {!antiLag && particles.map(p => (
+                <div
+                  key={p.id}
+                  className={`absolute pointer-events-none text-3xl font-bold z-30 ${p.isCrit ? 'text-red-500 text-5xl z-40 drop-shadow-[0_0_10px_rgba(239,68,68,0.8)]' : hasBuff ? 'text-yellow-300 drop-shadow-[0_0_5px_rgba(253,224,71,0.5)]' : 'text-white drop-shadow-md'}`}
+                  style={{ 
+                    left: p.x, 
+                    top: p.y, 
+                    animation: 'floatUp 0.8s ease-out forwards'
+                  }}
+                >
+                  {p.value}
+                </div>
+              ))}
+
+              {!antiLag && crumbs.map(c => (
+                   <div
+                      key={c.id}
+                      className="absolute pointer-events-none rounded-sm z-10"
+                      style={{
+                          left: c.x,
+                          top: c.y,
+                          width: c.size,
+                          height: c.size,
+                          backgroundColor: c.color,
+                          '--tx': `${c.tx}px`,
+                          '--ty': `${c.ty}px`,
+                          '--r': `${c.r}deg`,
+                          animation: 'crumble 0.8s cubic-bezier(0.25, 1, 0.5, 1) forwards',
+                          boxShadow: '0 1px 2px rgba(0,0,0,0.3)'
+                      }}
+                   />
+              ))}
+            </div>
+
+            <div className="flex gap-2 mt-4 h-6">
+              {hasShield && (
+                  <div className={`flex items-center gap-1 text-[10px] font-bold text-cyan-400 bg-cyan-900/40 px-2 rounded-full border border-cyan-500/30 ${!antiLag && 'animate-[fadeIn_0.3s]'}`}>
+                      <Shield size={10} /> 
+                      {hasTimeShield 
+                        ? 'Infinite Shield' 
+                        : `${state.activeEffects.protectedClicks} Protected`
+                      }
+                  </div>
+              )}
+              {hasBuff && (
+                  <div className={`flex items-center gap-1 text-[10px] font-bold text-yellow-400 bg-yellow-900/40 px-2 rounded-full border border-yellow-500/30 ${!antiLag && 'animate-[fadeIn_0.3s]'}`}>
+                      <Zap size={10} /> 2x Power
+                  </div>
+              )}
+            </div>
+
+            {selectedCookie && (
+                <div className={`mt-4 flex flex-col items-center w-full max-w-xs ${!antiLag && 'animate-[fadeIn_0.5s]'}`}>
+                   <div className="flex items-center gap-2 mb-1 text-xs font-bold uppercase tracking-widest text-slate-400">
+                     {durabilityPct < 25 ? <ShieldCheck className={`text-red-500 ${!antiLag && 'animate-bounce'}`} size={16} /> : null}
+                     <span>Structural Integrity</span>
+                   </div>
+                   
+                   <div className="relative w-full h-6 bg-slate-900 rounded-full overflow-hidden border border-slate-700 shadow-inner">
+                       <div 
+                         className={`h-full transition-all duration-200 ${meterColor}`}
+                         style={{ width: `${durabilityPct}%` }}
+                       ></div>
+                       {!antiLag && (
+                          <div className="absolute inset-0 pointer-events-none opacity-20" 
+                               style={{ backgroundImage: 'linear-gradient(45deg,rgba(0,0,0,.1) 25%,transparent 25%,transparent 50%,rgba(0,0,0,.1) 50%,rgba(0,0,0,.1) 75%,transparent 75%,transparent)', backgroundSize: '1rem 1rem' }}
+                          ></div>
+                       )}
+                       <div className="absolute inset-0 flex items-center justify-center text-xs font-bold text-white drop-shadow-md tracking-wider">
+                          {Math.ceil(durabilityPct)}%
+                       </div>
+                   </div>
+                   <div className="mt-1 text-[10px] text-slate-500 font-mono">
+                      {currentDurability} / {maxDurability} Hits Remaining
+                   </div>
+                </div>
+            )}
+
+            <div className="mt-6 text-center">
+              <h2 className="text-purple-300/50 text-sm uppercase tracking-widest mb-1">Current Balance</h2>
+              <div className={`text-5xl font-display font-bold text-white bg-clip-text text-transparent bg-gradient-to-r from-purple-300 via-fuchsia-300 to-indigo-300 ${!antiLag && 'drop-shadow-[0_0_15px_rgba(168,85,247,0.3)]'}`}>
+                {Math.floor(state.bits).toLocaleString()} <span className="text-2xl text-purple-400">Bits</span>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // --- COMPONENT: RngSystem ---
+      const RngSystem = ({ state, onRollComplete, spendBits, costReductionLevel, antiLag = false }) => {
+        const [isRolling, setIsRolling] = useState(false);
+        const [lastRolledCookie, setLastRolledCookie] = useState(null);
+        const [rollMessage, setRollMessage] = useState('');
+        const [errorMsg, setErrorMsg] = useState('');
+        const [isAutoRolling, setIsAutoRolling] = useState(false);
+        const [autoRollType, setAutoRollType] = useState('standard');
+
+        const getDiscountedCost = (baseCost) => {
+          const discount = Math.min(0.2, costReductionLevel * 0.02);
+          return Math.floor(baseCost * (1 - discount));
+        };
+
+        const ROLL_CONFIG = {
+          standard: { cost: getDiscountedCost(ROLL_COST), name: 'Standard Roll' },
+          rare: { cost: getDiscountedCost(RARE_ROLL_COST), name: 'Rare Roll' },
+          epic: { cost: getDiscountedCost(EPIC_ROLL_COST), name: 'Crystal Roll' },
+          mythical: { cost: getDiscountedCost(MYTHICAL_ROLL_COST), name: 'Mythical Roll' },
+          ascended: { cost: getDiscountedCost(ASCENDED_ROLL_COST), name: 'Ascend Roll' },
+        };
+
+        const calculateDrop = (pool, baseWeights) => {
+          const luckMultiplier = 1 + (state.upgrades.luckLevel * 0.1);
+          let currentWeights = { ...baseWeights };
+          
+          if (currentWeights[Rarity.RARE]) currentWeights[Rarity.RARE] *= luckMultiplier;
+          if (currentWeights[Rarity.ULTRA_RARE]) currentWeights[Rarity.ULTRA_RARE] *= luckMultiplier;
+          if (currentWeights[Rarity.EPIC]) currentWeights[Rarity.EPIC] *= luckMultiplier;
+          if (currentWeights[Rarity.LEGENDARY]) currentWeights[Rarity.LEGENDARY] *= luckMultiplier;
+          if (currentWeights[Rarity.MYTHICAL]) currentWeights[Rarity.MYTHICAL] *= luckMultiplier;
+          if (currentWeights[Rarity.ASCENDED]) currentWeights[Rarity.ASCENDED] *= luckMultiplier;
+          if (currentWeights[Rarity.DIVINE]) currentWeights[Rarity.DIVINE] *= luckMultiplier;
+
+          let totalWeight = Object.values(currentWeights).reduce((a, b) => a + b, 0);
+          let random = Math.random() * totalWeight;
+
+          let selectedRarity = Rarity.COMMON;
+          for (const [rarity, weight] of Object.entries(currentWeights)) {
+            if (random < weight) {
+              selectedRarity = rarity;
+              break;
+            }
+            random -= weight;
+          }
+
+          const rarityPool = pool.filter(c => c.rarity === selectedRarity);
+          const baseCookie = rarityPool.length > 0 
+            ? rarityPool[Math.floor(Math.random() * rarityPool.length)] 
+            : pool[0];
+
+          const maxDurability = RARITY_DURABILITY[baseCookie.rarity] || 50;
+
+          return {
+            ...baseCookie,
+            dateObtained: Date.now(),
+            id: `${baseCookie.id}_${Date.now()}`,
+            durability: maxDurability,
+            maxDurability: maxDurability
+          };
+        };
+
+        const handleRoll = (type) => {
+          if (isRolling) return;
+          
+          let baseCost = ROLL_COST;
+          let pool = STANDARD_COOKIES;
+          let weights = RARITY_WEIGHTS;
+          let msg = "Baking Standard...";
+          let delay = 1200;
+
+          if (type === 'rare') {
+              baseCost = RARE_ROLL_COST;
+              pool = RARE_ROLL_COOKIES;
+              weights = RARE_ROLL_WEIGHTS;
+              msg = "Summoning Rare...";
+          } else if (type === 'epic') {
+              baseCost = EPIC_ROLL_COST;
+              pool = EPIC_ROLL_COOKIES;
+              weights = EPIC_ROLL_WEIGHTS;
+              msg = "Refining Crystal...";
+              delay = 1000;
+          } else if (type === 'mythical') {
+              baseCost = MYTHICAL_ROLL_COST;
+              pool = MYTHICAL_ROLL_COOKIES;
+              weights = MYTHICAL_ROLL_WEIGHTS;
+              msg = "Opening the Rift...";
+              delay = 1200;
+          } else if (type === 'ascended') {
+              baseCost = ASCENDED_ROLL_COST;
+              pool = ASCENDED_ROLL_COOKIES;
+              weights = ASCENDED_ROLL_WEIGHTS;
+              msg = "TRANSCENDING REALITY...";
+              delay = 1500;
+          }
+
+          if (antiLag) delay = 100;
+          const cost = getDiscountedCost(baseCost);
+
+          if (!spendBits(cost)) {
+              setErrorMsg(`Not enough Bits! Need ${cost.toLocaleString()}.`);
+              setTimeout(() => setErrorMsg(""), 2000);
+              if (isAutoRolling) setIsAutoRolling(false);
+              return;
+          }
+
+          setIsRolling(true);
+          setRollMessage(msg);
+          if (!isAutoRolling) setLastRolledCookie(null);
+
+          setTimeout(() => {
+            const newCookie = calculateDrop(pool, weights);
+            setLastRolledCookie(newCookie);
+            onRollComplete(newCookie);
+            setIsRolling(false);
+            setRollMessage(`Obtained ${newCookie.rarity} cookie!`);
+          }, isAutoRolling ? 500 : delay);
+        };
+
+        const handleClose = () => {
+          setLastRolledCookie(null);
+          setRollMessage('');
+          setIsAutoRolling(false);
+        };
+
+        useEffect(() => {
+          let timeoutId;
+          if (isAutoRolling && !isRolling) {
+              const autoDelay = antiLag ? 200 : 800;
+              timeoutId = setTimeout(() => {
+                  const cost = ROLL_CONFIG[autoRollType].cost;
+                  if (state.bits >= cost) {
+                      handleRoll(autoRollType);
+                  } else {
+                      setIsAutoRolling(false);
+                      setErrorMsg("Auto-roll stopped: Insufficient Bits");
+                      setTimeout(() => setErrorMsg(""), 3000);
+                  }
+              }, autoDelay);
+          }
+          return () => clearTimeout(timeoutId);
+        }, [isAutoRolling, isRolling, state.bits, autoRollType, antiLag]);
+
+        return (
+          <div className="w-full max-w-2xl mx-auto p-4 space-y-6">
+            {errorMsg && (
+              <div className="absolute top-4 left-1/2 -translate-x-1/2 bg-red-500 text-white px-4 py-2 rounded-full shadow-lg z-50 animate-bounce text-center min-w-[200px]">
+                {errorMsg}
+              </div>
+            )}
+
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-xl">
+              <div className="flex items-center gap-3">
+                  <div className={`p-2 rounded-lg ${isAutoRolling ? 'bg-green-500/20 text-green-400 animate-pulse' : 'bg-slate-800 text-slate-500'}`}>
+                      <Settings2 size={24} />
+                  </div>
+                  <div>
+                      <h3 className="text-white font-bold text-sm">Auto-Roller 3000</h3>
+                      <p className="text-slate-400 text-xs">Automate your summons</p>
+                  </div>
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <select 
+                      value={autoRollType}
+                      onChange={(e) => setAutoRollType(e.target.value)}
+                      disabled={isAutoRolling}
+                      className="bg-black border border-slate-700 text-white text-sm rounded-lg px-3 py-2 outline-none focus:border-amber-500 disabled:opacity-50 flex-grow sm:flex-grow-0"
+                  >
+                      {Object.entries(ROLL_CONFIG).map(([key, config]) => (
+                          <option key={key} value={key}>
+                              {config.name} ({config.cost.toLocaleString()})
+                          </option>
+                      ))}
+                  </select>
+                  <button
+                      onClick={() => setIsAutoRolling(!isAutoRolling)}
+                      className={`
+                          flex items-center gap-2 px-4 py-2 rounded-lg font-bold text-sm transition-all
+                          ${isAutoRolling 
+                              ? 'bg-red-500/20 text-red-400 border border-red-500/50 hover:bg-red-500 hover:text-white' 
+                              : 'bg-green-500/20 text-green-400 border border-green-500/50 hover:bg-green-500 hover:text-white'}
+                      `}
+                  >
+                      {isAutoRolling ? <><Square size={16} fill="currentColor" /> Stop</> : <><Play size={16} fill="currentColor" /> Start</>}
+                  </button>
+              </div>
+            </div>
+
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 ${isAutoRolling ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
+              <button
+                onClick={() => handleRoll('standard')}
+                disabled={isRolling}
+                className={`
+                  group relative overflow-hidden rounded-2xl p-6 text-left transition-all
+                  ${(isRolling) ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-1 hover:shadow-2xl'}
+                  bg-gradient-to-br from-slate-700 to-slate-900 border border-slate-600
+                  flex flex-col items-center text-center
+                `}
+              >
+                {!antiLag && (
+                  <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                      <Sparkles size={80} />
+                  </div>
+                )}
+                <h3 className="text-xl font-bold text-slate-200 mb-1">Standard Roll</h3>
+                <p className="text-xs text-slate-400 mb-2">Common & Rare cookies</p>
+                <div className="flex items-center space-x-2 text-slate-300 font-bold bg-black/40 px-4 py-2 rounded-full border border-slate-500/30">
+                  <span>{ROLL_CONFIG.standard.cost} Bits</span>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleRoll('rare')}
+                disabled={isRolling}
+                className={`
+                  group relative overflow-hidden rounded-2xl p-6 text-left transition-all
+                  ${(isRolling) ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-1 hover:shadow-2xl'}
+                  bg-gradient-to-br from-amber-700 to-purple-900 border border-amber-600/50
+                  flex flex-col items-center text-center
+                `}
+              >
+                {!antiLag && (
+                    <div className="absolute top-0 right-0 p-4 opacity-20 group-hover:opacity-30 transition-opacity">
+                      <Crown size={80} className="text-amber-400" />
+                    </div>
+                )}
+                <h3 className="text-xl font-bold text-amber-100 mb-1">Rare Roll</h3>
+                <p className="text-xs text-amber-200/70 mb-2">High chance for powerful cookies</p>
+                <div className="flex items-center space-x-2 text-amber-400 font-bold bg-black/40 px-4 py-2 rounded-full border border-amber-500/30">
+                  <Star size={14} fill="currentColor" />
+                  <span>{ROLL_CONFIG.rare.cost} Bits</span>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleRoll('epic')}
+                disabled={isRolling}
+                className={`
+                  md:col-span-2 group relative overflow-hidden rounded-2xl p-6 text-left transition-all
+                  ${(isRolling) ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-1 hover:shadow-2xl'}
+                  bg-gradient-to-br from-indigo-900 to-violet-950 border border-indigo-500/50
+                  flex flex-row items-center justify-between
+                `}
+              >
+                {!antiLag && (
+                  <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                      <Gem size={100} className="text-indigo-400" />
+                  </div>
+                )}
+                <div className="relative z-10 flex items-center gap-4">
+                  <div className="p-3 bg-indigo-500/20 rounded-xl border border-indigo-400/30">
+                      <Gem size={32} className="text-indigo-300" />
+                  </div>
+                  <div>
+                      <h3 className="text-xl font-bold text-indigo-100 mb-1">Crystal Roll</h3>
+                      <p className="text-xs text-indigo-200/70">Exclusive <span className="text-indigo-300 font-bold">Ultra Rare</span> & <span className="text-violet-300 font-bold">Epics</span>.</p>
+                  </div>
+                </div>
+                <div className="relative z-10 flex items-center space-x-2 text-indigo-300 font-bold bg-black/40 px-4 py-2 rounded-full border border-indigo-500/30">
+                  <Gem size={14} fill="currentColor" />
+                  <span>{ROLL_CONFIG.epic.cost} Bits</span>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleRoll('mythical')}
+                disabled={isRolling}
+                className={`
+                  md:col-span-2 group relative overflow-hidden rounded-2xl p-8 text-left transition-all
+                  ${(isRolling) ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-1 hover:shadow-lg hover:shadow-pink-500/20'}
+                  bg-slate-950 border border-pink-500/30
+                  flex flex-row items-center justify-between
+                `}
+              >
+                {!antiLag && (
+                  <>
+                      <div className="absolute inset-0 bg-gradient-to-r from-indigo-900 via-purple-900 to-pink-900 opacity-60 group-hover:opacity-80 transition-opacity"></div>
+                      <div className="absolute inset-0 pointer-events-none opacity-30" style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '20px 20px' }}></div>
+                  </>
+                )}
+                <div className="relative z-10 flex items-center gap-6">
+                  <div className={`p-4 bg-pink-500/20 rounded-full border border-pink-500/50 ${!antiLag && 'group-hover:scale-110 transition-transform duration-500'}`}>
+                      <Ghost size={40} className="text-pink-300" />
+                  </div>
+                  <div>
+                      <h3 className="text-2xl font-display font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-300 to-indigo-300 mb-1">
+                          Mythical Roll
+                      </h3>
+                      <p className="text-sm text-pink-200/70">Summon entities from the Void. Contains <span className="text-pink-400 font-bold">Epics</span> & <span className="text-purple-400 font-bold">Mythicals</span>.</p>
+                  </div>
+                </div>
+                <div className="relative z-10 flex flex-col items-end">
+                  <div className="flex items-center gap-2 text-pink-300 font-bold bg-black/60 px-6 py-3 rounded-xl border border-pink-500/40 shadow-xl">
+                      <Sparkles size={16} className={!antiLag ? "animate-pulse" : ""} />
+                      <span className="text-lg">{ROLL_CONFIG.mythical.cost.toLocaleString()} Bits</span>
+                  </div>
+                </div>
+              </button>
+
+              <button
+                onClick={() => handleRoll('ascended')}
+                disabled={isRolling}
+                className={`
+                  md:col-span-2 group relative overflow-hidden rounded-2xl p-10 text-left transition-all
+                  ${(isRolling) ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-1 hover:shadow-2xl hover:shadow-cyan-500/40'}
+                  bg-black border border-cyan-500 shadow-[0_0_15px_rgba(34,211,238,0.2)]
+                  flex flex-row items-center justify-between
+                `}
+              >
+                {!antiLag && (
+                  <>
+                      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(0,0,0,1)_0%,rgba(8,51,68,1)_50%,rgba(0,0,0,1)_100%)] opacity-90"></div>
+                      <div className="absolute inset-0 pointer-events-none opacity-20 bg-[length:100%_4px] bg-[linear-gradient(rgba(0,0,0,0)_50%,rgba(34,211,238,0.2)_50%)]"></div>
+                      <div className="absolute -left-20 -bottom-20 w-64 h-64 border-2 border-cyan-500/30 rounded-full animate-[spin_10s_linear_infinite]"></div>
+                  </>
+                )}
+                <div className="relative z-10 flex items-center gap-8">
+                  <div className={`p-5 bg-cyan-950/50 rounded-full border-2 border-cyan-400 shadow-[0_0_20px_rgba(34,211,238,0.5)] ${!antiLag && 'group-hover:scale-110 group-hover:rotate-180 transition-all duration-1000'}`}>
+                      <Infinity size={48} className="text-cyan-300" />
+                  </div>
+                  <div>
+                      <h3 className="text-4xl font-display font-bold text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 via-white to-cyan-300 mb-2 drop-shadow-[0_0_5px_rgba(34,211,238,0.8)]">
+                          ASCEND ROLL
+                      </h3>
+                      <p className="text-sm text-cyan-100/80 font-mono tracking-wider">
+                          Transcend mortal limits.
+                          <br/>
+                          Chance for <span className="text-cyan-300 font-bold drop-shadow-md">ASCENDED</span> & <span className="text-white font-bold drop-shadow-[0_0_8px_rgba(255,255,255,0.8)]">GOD TIER</span>.
+                      </p>
+                  </div>
+                </div>
+                <div className="relative z-10 flex flex-col items-end">
+                  <div className="flex items-center gap-3 text-cyan-950 font-black bg-cyan-300/90 px-8 py-4 rounded-xl border-2 border-white shadow-[0_0_30px_rgba(34,211,238,0.5)] hover:bg-white hover:text-cyan-600 transition-colors">
+                      <Infinity size={20} className={!antiLag ? "animate-spin-slow" : ""} />
+                      <span className="text-xl">{ROLL_CONFIG.ascended.cost.toLocaleString()} Bits</span>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            <div className="min-h-[300px] relative flex flex-col items-center justify-center p-8 bg-black/20 rounded-3xl border border-white/5 backdrop-blur-sm">
+              {lastRolledCookie && !isRolling && (
+                <button 
+                  onClick={handleClose}
+                  className="absolute top-4 right-4 p-2 rounded-full bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors"
+                  title="Close"
+                >
+                  <X size={20} />
+                </button>
+              )}
+              {(isRolling) && (
+                <div className={`flex flex-col items-center ${!antiLag && 'animate-pulse'}`}>
+                  <Loader2 size={48} className="animate-spin text-amber-500 mb-4" />
+                  <p className={`text-slate-300 font-display tracking-widest text-lg ${!antiLag && 'animate-bounce'}`}>{rollMessage}</p>
+                </div>
+              )}
+              {!isRolling && !lastRolledCookie && (
+                <div className="text-slate-500 flex flex-col items-center opacity-60">
+                  <Info size={40} className="mb-4"/>
+                  <p className="text-lg">Select a banner to summon</p>
+                </div>
+              )}
+              {!isRolling && lastRolledCookie && (
+                <div className={`flex flex-col items-center ${!antiLag && 'animate-[popIn_0.5s_cubic-bezier(0.175,0.885,0.32,1.275)_forwards]'}`}>
+                  <div className="relative mb-6">
+                    {!antiLag && (
+                      <div 
+                        className="absolute inset-0 rounded-full blur-xl"
+                        style={{ backgroundColor: lastRolledCookie.colorHex, opacity: 0.6 }}
+                      ></div>
+                    )}
+                    <div 
+                      className="w-32 h-32 rounded-full relative z-10 flex items-center justify-center shadow-2xl"
+                      style={{ backgroundColor: lastRolledCookie.colorHex }}
+                    >
+                      <div className="absolute -top-4 -right-4 bg-black/80 p-2 rounded-full border border-white/10">
+                        {React.createElement(RARITY_ICONS[lastRolledCookie.rarity] || Sparkles, { 
+                          size: 24, 
+                          color: RARITY_COLORS[lastRolledCookie.rarity] 
+                        })}
+                      </div>
+                      <span className="text-4xl">🍪</span>
+                    </div>
+                  </div>
+                  <h2 className="text-3xl font-display font-bold text-white mb-2 text-center drop-shadow-lg" style={{ color: lastRolledCookie.colorHex }}>
+                    {lastRolledCookie.name}
+                  </h2>
+                  <div className={`
+                    px-3 py-1 rounded-full text-xs font-bold uppercase tracking-widest mb-4
+                    border border-white/20
+                  `} style={{ 
+                    backgroundColor: `${RARITY_COLORS[lastRolledCookie.rarity]}30`,
+                    color: RARITY_COLORS[lastRolledCookie.rarity] 
+                  }}>
+                    {lastRolledCookie.rarity}
+                  </div>
+                  <p className="text-slate-300 text-center max-w-md italic">
+                    "{lastRolledCookie.description}"
+                  </p>
+                  {lastRolledCookie.isAiGenerated && (
+                    <div className="mt-4 text-xs text-purple-400 flex items-center gap-1">
+                      <BrainCircuit size={12} /> Generated by Gemini Oracle
+                    </div>
+                  )}
+                  <div className="mt-6 flex gap-4 text-sm text-slate-400">
+                    <div className="bg-slate-800/50 px-3 py-1.5 rounded-lg border border-white/5">
+                      Base Value: <span className="text-white font-bold ml-1">{lastRolledCookie.baseValue}</span>
+                    </div>
+                    <div className="bg-slate-800/50 px-3 py-1.5 rounded-lg border border-white/5">
+                      Durability: <span className="text-white font-bold ml-1">{lastRolledCookie.maxDurability}</span>
+                    </div>
+                  </div>
+                  {!antiLag && (
+                      <div className="mt-6 text-xs text-amber-400 animate-pulse font-bold tracking-wide uppercase">
+                          Automatically equipped!
+                      </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      // --- COMPONENT: Inventory ---
+      const Inventory = ({ state, onSell, onEquip, onUseItem }) => {
+        const sortedCookies = [...state.cookies].sort((a, b) => {
+          const rarityValue = {
+            'Divine': 10, 'Ascended': 9, 'Mythical': 7, 'Legendary': 6, 
+            'Epic': 5, 'Ultra Rare': 4.5, 'Rare': 3, 'Uncommon': 2, 'Common': 1
+          };
+          const valA = rarityValue[a.rarity] || 0;
+          const valB = rarityValue[b.rarity] || 0;
+          const diff = valB - valA;
+          if (diff !== 0) return diff;
+          return b.baseValue - a.baseValue;
+        });
+
+        const consumables = Object.entries(state.inventoryItems || {}).filter(([_, count]) => count > 0);
+
+        return (
+          <div className="w-full max-w-4xl mx-auto p-4 space-y-8">
+            {consumables.length > 0 && (
+                <div className="animate-[fadeIn_0.3s]">
+                  <h2 className="text-xl font-display font-bold text-white mb-4 flex items-center gap-2">
+                      <Briefcase size={20} className="text-amber-500" /> Consumables
+                  </h2>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+                      {consumables.map(([itemId, count]) => {
+                          const itemDef = SHOP_ITEMS.find(i => i.id === itemId);
+                          if (!itemDef) return null;
+                          const Icon = itemDef.icon;
+                          return (
+                              <div key={itemId} className="bg-slate-900 border border-slate-700 rounded-xl p-4 flex items-center justify-between shadow-lg">
+                                  <div className="flex items-center gap-3">
+                                      <div className={`p-3 rounded-lg ${itemDef.bgColor}`}>
+                                          <Icon size={20} className={itemDef.color.replace('text-', 'text-')} />
+                                      </div>
+                                      <div>
+                                          <div className="font-bold text-slate-200">{itemDef.name}</div>
+                                          <div className="text-xs text-slate-500">Quantity: <span className="text-white font-bold">{count}</span></div>
+                                      </div>
+                                  </div>
+                                  <button
+                                      onClick={() => onUseItem && onUseItem(itemId)}
+                                      className="px-4 py-2 bg-slate-800 hover:bg-amber-600 text-slate-400 hover:text-white rounded-lg text-xs font-bold uppercase transition-colors"
+                                  >
+                                      Use
+                                  </button>
+                              </div>
+                          );
+                      })}
+                  </div>
+                </div>
+            )}
+
+            <div>
+              <h2 className="text-2xl font-display font-bold text-white mb-6 flex items-center gap-3">
+                  <CookieIcon className="text-amber-500" /> Cookie Collection <span className="text-sm font-normal text-slate-400 bg-slate-800 px-2 py-1 rounded-md">{state.cookies.length}</span>
+              </h2>
+              {sortedCookies.length === 0 ? (
+                  <div className="text-center py-20 text-slate-500 border-2 border-dashed border-slate-700 rounded-xl">
+                  No cookies collected yet. Start rolling!
+                  </div>
+              ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  {sortedCookies.map((cookie) => {
+                      const isEquipped = state.activeCookieId === cookie.id;
+                      return (
+                      <div 
+                          key={cookie.id}
+                          className={`
+                          group relative bg-slate-800 rounded-xl p-3 border transition-all hover:-translate-y-1 overflow-hidden cursor-pointer
+                          ${isEquipped ? 'border-amber-500 shadow-amber-900/20 shadow-lg' : 'border-white/5 hover:border-white/20'}
+                          `}
+                          onClick={() => onEquip(cookie.id)}
+                      >
+                          <div 
+                          className="absolute top-0 left-0 w-full h-1"
+                          style={{ backgroundColor: RARITY_COLORS[cookie.rarity] }}
+                          ></div>
+                          <div className="flex justify-between items-start mb-2">
+                          <div 
+                              className="w-8 h-8 rounded-full flex items-center justify-center text-xs"
+                              style={{ backgroundColor: `${RARITY_COLORS[cookie.rarity]}20`, color: RARITY_COLORS[cookie.rarity] }}
+                          >
+                              {React.createElement(RARITY_ICONS[cookie.rarity] || RARITY_ICONS['Common'], { size: 14 })}
+                          </div>
+                          
+                          <div className="flex gap-2">
+                              {isEquipped && (
+                              <div className="text-amber-500" title="Equipped">
+                                  <CheckCircle size={14} fill="currentColor" className="text-slate-900" />
+                              </div>
+                              )}
+                              <button 
+                                  onClick={(e) => { e.stopPropagation(); onSell(cookie.id); }}
+                                  className="text-slate-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  title="Sell Cookie"
+                              >
+                                  <Trash2 size={14} />
+                              </button>
+                          </div>
+                          </div>
+                          <div className="text-center mb-2">
+                          <div 
+                              className="w-12 h-12 mx-auto rounded-full mb-2 shadow-sm transition-transform group-hover:scale-110"
+                              style={{ backgroundColor: cookie.colorHex }}
+                          ></div>
+                          <h4 className="font-bold text-sm text-slate-200 truncate leading-tight" title={cookie.name}>
+                              {cookie.name}
+                          </h4>
+                          <p className="text-[10px] text-slate-500 uppercase tracking-wider">{cookie.rarity}</p>
+                          </div>
+                          <div className="bg-black/20 rounded p-1 text-center flex items-center justify-center gap-1">
+                          {isEquipped ? (
+                              <span className="text-[10px] font-bold text-amber-500 uppercase">Equipped</span>
+                          ) : (
+                              <>
+                                  <MousePointer2 size={10} className="text-slate-500" />
+                                  <span className="text-xs font-mono text-slate-400 group-hover:text-white transition-colors">Equip</span>
+                              </>
+                          )}
+                          </div>
+                      </div>
+                      );
+                  })}
+                  </div>
+              )}
+            </div>
+          </div>
+        );
+      };
+
+      // --- COMPONENT: Upgrades ---
+      const Upgrades = ({ state, buyUpgrade, antiLag = false }) => {
+        const { upgrades, bits } = state;
+
+        const costLuck = UPGRADE_COSTS.luck(upgrades.luckLevel);
+        const costAuto = UPGRADE_COSTS.autoClicker(upgrades.autoClickerLevel);
+        const costCrit = UPGRADE_COSTS.crit(upgrades.critLevel);
+        const costDurability = UPGRADE_COSTS.durability(upgrades.durabilityLevel);
+        const costBarter = UPGRADE_COSTS.barter(upgrades.barterLevel);
+        const costAscension = UPGRADE_COSTS.ascension(upgrades.ascensionLevel);
+
+        const UpgradeCard = ({ title, level, cost, icon: Icon, desc, type, maxLevel }) => {
+          const isMax = maxLevel ? level >= maxLevel : false;
+          const canAfford = !isMax && bits >= cost;
+          const isAscension = type === 'ascension';
+
+          let wrapperClasses = `
+            relative overflow-hidden rounded-2xl border transition-all duration-500 text-left w-full
+            flex flex-col group
+          `;
+          if (isAscension) {
+            wrapperClasses += ` sm:col-span-2 min-h-[350px] p-8 md:p-12 `;
+            if (isMax) {
+              wrapperClasses += ` bg-[#12051f] border-purple-900/30 opacity-60 cursor-default`;
+            } else if (canAfford) {
+              wrapperClasses += ` 
+                bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-[#3b0764] via-[#1a0525] to-black
+                border-purple-500 shadow-[0_0_60px_rgba(168,85,247,0.3)]
+                hover:border-fuchsia-400 hover:shadow-[0_0_100px_rgba(216,180,254,0.6)]
+                hover:-translate-y-2 hover:scale-[1.01] cursor-pointer
+              `;
+            } else {
+              wrapperClasses += ` bg-[#050505] border-slate-900 opacity-70 cursor-not-allowed grayscale-[0.5]`;
+            }
+          } else {
+            wrapperClasses += ` p-5 min-h-[140px] `;
+            if (isMax) {
+              wrapperClasses += ` bg-amber-900/10 border-amber-500/10 cursor-default opacity-60`;
+            } else if (canAfford) {
+              wrapperClasses += ` 
+                bg-slate-800 border-slate-700 hover:bg-slate-750 
+                hover:border-amber-500/50 hover:-translate-y-1 shadow-md cursor-pointer
+              `;
+            } else {
+              wrapperClasses += ` bg-slate-900 border-slate-800 opacity-50 cursor-not-allowed`;
+            }
+          }
+
+          return (
+            <button onClick={() => !isMax && buyUpgrade(type)} disabled={!canAfford && !isMax} className={wrapperClasses}>
+              {isAscension && !isMax && !antiLag && (
+                  <>
+                      <div className="absolute -right-32 -top-32 w-[600px] h-[600px] bg-purple-600/30 rounded-full blur-[120px] pointer-events-none animate-pulse"></div>
+                      <div className="absolute -left-32 -bottom-32 w-[600px] h-[600px] bg-fuchsia-900/30 rounded-full blur-[120px] pointer-events-none animate-pulse delay-700"></div>
+                      <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-full h-full bg-gradient-to-t from-purple-900/20 to-transparent pointer-events-none"></div>
+                  </>
+              )}
+              {!isAscension && !antiLag && (
+                  <div className="absolute -right-4 -bottom-4 text-white/5 pointer-events-none group-hover:scale-110 transition-transform">
+                      <Icon size={100} />
+                  </div>
+              )}
+
+              <div className="flex justify-between w-full mb-8 z-10 relative">
+                <div className={`
+                  rounded-2xl flex items-center justify-center transition-all duration-500
+                  ${isAscension 
+                      ? 'bg-[#2e0b4d] text-fuchsia-200 shadow-[0_0_30px_rgba(216,180,254,0.4)] border border-purple-400 p-6 group-hover:scale-110 group-hover:bg-[#4a0e78] group-hover:text-white' 
+                      : isMax ? 'bg-amber-500/20 text-amber-500 p-3' : 'bg-slate-950 text-amber-500 border border-white/5 p-3'}
+                `}>
+                  <Icon size={isAscension ? 52 : 24} className={isAscension && !antiLag ? 'animate-pulse drop-shadow-[0_0_15px_rgba(232,121,249,0.8)]' : ''} />
+                </div>
+                
+                <div className="flex flex-col items-end">
+                  <span className={`text-xs font-mono font-bold uppercase tracking-widest ${isAscension ? 'text-fuchsia-300' : 'text-slate-500'}`}>
+                      Level {level} {maxLevel ? `/ ${maxLevel}` : ''}
+                  </span>
+                  {isAscension && isMax && (
+                      <span className="text-xs font-bold text-amber-500 mt-1">MAXED</span>
+                  )}
+                </div>
+              </div>
+              
+              <div className="z-10 relative flex-grow space-y-4">
+                  <h3 className={`font-display font-bold ${isAscension ? 'text-6xl text-transparent bg-clip-text bg-gradient-to-r from-white via-fuchsia-300 to-purple-400 drop-shadow-[0_0_10px_rgba(168,85,247,0.5)] tracking-tight' : 'text-lg text-slate-200'}`}>
+                      {title}
+                  </h3>
+                  <p className={`leading-relaxed ${isAscension ? 'text-purple-100/70 max-w-2xl text-xl font-light' : 'text-sm text-slate-400'}`}>
+                      {desc}
+                  </p>
+              </div>
+              
+              <div className={`
+                mt-10 text-sm font-bold w-full py-5 rounded-xl text-center z-10 transition-all border relative overflow-hidden
+                ${isMax 
+                  ? 'bg-transparent border-transparent text-slate-600 uppercase tracking-widest' 
+                  : isAscension
+                      ? canAfford 
+                          ? 'bg-gradient-to-r from-purple-800 via-fuchsia-700 to-purple-900 text-white border-purple-400/60 shadow-[0_0_30px_rgba(192,132,252,0.4)] group-hover:shadow-[0_0_50px_rgba(232,121,249,0.6)] group-hover:scale-[1.02]' 
+                          : 'bg-black/60 text-slate-600 border-slate-800'
+                      : canAfford 
+                          ? 'bg-amber-600 text-white border-amber-500 hover:bg-amber-500' 
+                          : 'bg-slate-800 text-slate-500 border-slate-700'}
+              `}>
+                {isMax ? (isAscension ? 'DIVINITY ACHIEVED' : 'MAX LEVEL') : (
+                      <div className="flex items-center justify-center gap-3 relative z-10">
+                          {canAfford && isAscension && !antiLag && <Sparkles size={24} className="text-fuchsia-300 animate-pulse" />}
+                          <span className={isAscension ? 'text-2xl font-display tracking-widest text-fuchsia-50 drop-shadow-md' : ''}>{cost.toLocaleString()} Bits</span>
+                          {canAfford && isAscension && !antiLag && <Sparkles size={24} className="text-purple-300 animate-pulse delay-100" />}
+                      </div>
+                  )}
+              </div>
+            </button>
+          );
+        };
+
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl mx-auto p-4 pb-20">
+            <UpgradeCard title="Ascension" level={upgrades.ascensionLevel} cost={costAscension} icon={ChevronsUp} desc={upgrades.ascensionLevel === 0 ? "Tear open the fabric of reality. Phase 1 grants +3 Flat Bits per click." : "Become one with the Eternal Void. Phase 2 grants +8 Flat Bits per click."} type="ascension" maxLevel={2} />
+            <UpgradeCard title="Auto Clicker" level={upgrades.autoClickerLevel} cost={costAuto} icon={Clock} desc="Hires a spectral baker to click for you automatically." type="autoClicker" maxLevel={5} />
+            <UpgradeCard title="Lucky Charm" level={upgrades.luckLevel} cost={costLuck} icon={Clover} desc="Increases the probability of rolling higher rarity cookies." type="luck" maxLevel={5} />
+            <UpgradeCard title="Precision Striker" level={upgrades.critLevel} cost={costCrit} icon={Target} desc="Increases chance to land a Critical Strike (3x damage). +5% chance per level." type="crit" maxLevel={10} />
+            <UpgradeCard title="Reinforced Frame" level={upgrades.durabilityLevel} cost={costDurability} icon={ShieldCheck} desc="Add nanotech coating to cookies. 5% chance per level to ignore durability loss on click." type="durability" maxLevel={6} />
+            <UpgradeCard title="Market Connections" level={upgrades.barterLevel} cost={costBarter} icon={Scale} desc="Use insider trading to lower costs. Reduces Shop, Crate, and Roll prices by 2% per level." type="barter" maxLevel={6} />
+          </div>
+        );
+      };
+
+      // --- COMPONENT: ItemShop ---
+      const ItemShop = ({ state, onBuy, costReductionLevel }) => {
+        return (
+          <div className="max-w-4xl mx-auto p-4">
+            <h2 className="text-2xl font-display font-bold text-white mb-2">The Celestial Pantry</h2>
+            <p className="text-slate-400 mb-6 text-sm">Buy supplies here. They will be stored in your Inventory.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {SHOP_ITEMS.map((item) => {
+                const Icon = item.icon;
+                const discount = Math.min(0.2, costReductionLevel * 0.02);
+                const finalCost = Math.floor(item.cost * (1 - discount));
+                const canAfford = state.bits >= finalCost;
+                const disabled = !canAfford;
+                return (
+                  <button key={item.id} onClick={() => onBuy(item.id, finalCost)} disabled={disabled} className={`group relative flex items-center gap-4 p-4 rounded-xl border transition-all text-left ${disabled ? 'bg-slate-900/50 border-slate-800 opacity-60 cursor-not-allowed' : 'bg-slate-800 border-slate-700 hover:bg-slate-750 hover:border-amber-500/50 hover:-translate-y-0.5 shadow-lg'}`}>
+                    <div className={`w-12 h-12 rounded-full flex items-center justify-center shrink-0 ${item.bgColor} ${item.color}`}><Icon size={24} /></div>
+                    <div className="flex-grow">
+                      <div className="flex justify-between items-start">
+                        <h3 className="font-bold text-slate-100">{item.name}</h3>
+                        <div className="flex flex-col items-end">
+                            <span className={`text-xs font-bold px-2 py-1 rounded bg-black/40 border border-white/5 ${canAfford ? 'text-amber-500' : 'text-slate-500'}`}>{finalCost} Bits</span>
+                            {discount > 0 && (<span className="text-[10px] text-green-400 line-through opacity-70">{item.cost}</span>)}
+                        </div>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1">{item.description}</p>
+                      {state.inventoryItems && state.inventoryItems[item.id] > 0 && (<p className="text-[10px] text-green-400 mt-1 uppercase tracking-wide font-bold">Owned: {state.inventoryItems[item.id]}</p>)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      };
+
+      // --- COMPONENT: CrateRoom ---
+      const CrateRoom = ({ state, onOpenCrate, costReductionLevel = 0 }) => {
+        const [openingCrateId, setOpeningCrateId] = useState(null);
+        const [viewingInfoId, setViewingInfoId] = useState(null);
+        const [reward, setReward] = useState(null);
+
+        const getDiscountedCost = (baseCost) => {
+          const discount = Math.min(0.2, costReductionLevel * 0.02);
+          return Math.floor(baseCost * (1 - discount));
+        };
+
+        const handleOpen = async (crateId) => {
+          if (openingCrateId) return;
+          setOpeningCrateId(crateId);
+          setReward(null);
+          await new Promise(r => setTimeout(r, 1000));
+          const result = await onOpenCrate(crateId);
+          setReward(result);
+          setOpeningCrateId(null);
+        };
+
+        const activeInfoCrate = viewingInfoId ? CRATE_DEFS.find(c => c.id === viewingInfoId) : null;
+
+        return (
+          <div className="max-w-5xl mx-auto p-4 relative min-h-[500px]">
+            <h2 className="text-2xl font-display font-bold text-white mb-2">The Vault</h2>
+            <p className="text-slate-400 mb-8 text-sm">Risk your Bits for a chance at greater fortune or powerful boons.</p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+              {CRATE_DEFS.map((crate) => {
+                const Icon = crate.icon;
+                const finalCost = getDiscountedCost(crate.cost);
+                const canAfford = state.bits >= finalCost;
+                const isOpening = openingCrateId === crate.id;
+                const isOtherOpening = openingCrateId !== null && openingCrateId !== crate.id;
+                return (
+                  <div key={crate.id} className={`relative rounded-2xl transition-all duration-300 ${isOtherOpening ? 'opacity-30 blur-sm scale-95' : 'opacity-100'} ${isOpening ? 'scale-105 shadow-[0_0_50px_rgba(255,255,255,0.1)]' : ''}`}>
+                      <button onClick={(e) => { e.stopPropagation(); setViewingInfoId(crate.id); }} className="absolute top-2 right-2 z-20 p-2 text-slate-400 hover:text-white bg-black/20 hover:bg-black/40 rounded-full transition-colors" title="View Drop Rates"><Info size={18} /></button>
+                      <button onClick={() => handleOpen(crate.id)} disabled={!canAfford || openingCrateId !== null} className={`flex flex-col items-center p-6 rounded-2xl border-2 w-full h-full ${!canAfford && !isOpening ? 'bg-slate-900 border-slate-800 opacity-50 cursor-not-allowed' : `${crate.bgColor} ${crate.borderColor} hover:-translate-y-2 hover:shadow-2xl`}`}>
+                      <div className={`mb-6 p-6 rounded-full bg-black/20 shadow-inner ${isOpening ? 'animate-[bounce_0.5s_infinite]' : ''}`}>{isOpening ? <Loader2 size={48} className={`animate-spin ${crate.color}`} /> : <Icon size={48} className={crate.color} />}</div>
+                      <h3 className={`text-xl font-bold mb-2 ${crate.color}`}>{crate.name}</h3>
+                      <p className="text-xs text-slate-400 text-center mb-6 min-h-[3rem]">{crate.description}</p>
+                      <div className={`px-4 py-2 rounded-lg font-bold font-mono text-sm border flex flex-col items-center ${canAfford ? 'bg-black/40 border-white/10 text-white' : 'bg-red-900/20 border-red-500/20 text-red-400'}`}><span>{finalCost.toLocaleString()} Bits</span>{finalCost < crate.cost && (<span className="text-[10px] line-through opacity-60 font-normal">{crate.cost.toLocaleString()}</span>)}</div>
+                      </button>
+                  </div>
+                );
+              })}
+            </div>
+            {activeInfoCrate && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-md bg-black/60 animate-[fadeIn_0.2s]">
+                  <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl relative">
+                      <button onClick={() => setViewingInfoId(null)} className="absolute top-3 right-3 p-1 hover:bg-white/10 rounded-full text-slate-500 hover:text-white"><X size={20} /></button>
+                      <h3 className={`text-xl font-bold mb-1 ${activeInfoCrate.color}`}>{activeInfoCrate.name}</h3>
+                      <p className="text-xs text-slate-500 mb-4 uppercase tracking-wider">Drop Probabilities</p>
+                      <div className="space-y-3">{activeInfoCrate.contents.map((item, idx) => {
+                              let colorClass = "text-slate-300"; let barClass = "bg-slate-600";
+                              if (item.type === 'bad') { colorClass = "text-red-400"; barClass = "bg-red-900"; }
+                              if (item.type === 'common') { colorClass = "text-white"; barClass = "bg-slate-500"; }
+                              if (item.type === 'rare') { colorClass = "text-blue-400"; barClass = "bg-blue-500"; }
+                              if (item.type === 'epic') { colorClass = "text-purple-400"; barClass = "bg-purple-500"; }
+                              if (item.type === 'legendary') { colorClass = "text-amber-400"; barClass = "bg-amber-500 animate-pulse"; }
+                              return (<div key={idx} className="bg-black/20 rounded p-2"><div className="flex justify-between text-sm font-bold mb-1"><span className={colorClass}>{item.label}</span><span className="text-slate-500">{item.chance}%</span></div><div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden"><div className={`h-full rounded-full ${barClass}`} style={{ width: `${item.chance}%` }}></div></div></div>)
+                          })}</div>
+                  </div>
+              </div>
+            )}
+            {reward && (
+              <div className="absolute inset-0 z-50 flex items-center justify-center p-4 backdrop-blur-sm bg-black/40 animate-[fadeIn_0.3s]">
+                <div className="bg-[#1a1a1a] border border-white/10 rounded-2xl p-8 max-w-sm w-full text-center shadow-2xl relative overflow-hidden">
+                  <button onClick={() => setReward(null)} className="absolute top-2 right-2 p-2 hover:bg-white/10 rounded-full text-slate-500 hover:text-white"><X size={20} /></button>
+                  <div className="flex justify-center mb-4">{reward.type === 'bits' || reward.type === 'jackpot' ? <Coins size={64} className={reward.type === 'jackpot' ? 'text-yellow-400 animate-bounce' : 'text-amber-500'} /> : reward.type === 'repair' ? <Hammer size={64} className="text-blue-400 animate-pulse" /> : reward.type === 'frenzy' ? <Zap size={64} className="text-purple-400 animate-pulse" /> : <Trophy size={64} className="text-white" />}</div>
+                  <h3 className="text-2xl font-bold text-white mb-2">{reward.message}</h3>
+                  {reward.type === 'bits' || reward.type === 'jackpot' ? (<div className="text-4xl font-display font-bold text-amber-400 mb-6">+{reward.value.toLocaleString()} Bits</div>) : (<p className="text-slate-400 mb-6 text-sm">Effect Applied Successfully!</p>)}
+                  <button onClick={() => setReward(null)} className="w-full py-3 bg-white text-black font-bold rounded-lg hover:bg-gray-200 transition-colors">Collect</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      // --- COMPONENT: BundlePopup ---
+      const BundlePopup = ({ offer, onBuy, onClose, canAfford }) => {
+        const [timeLeft, setTimeLeft] = useState(offer.duration);
+        const [isExiting, setIsExiting] = useState(false);
+
+        useEffect(() => { setTimeLeft(offer.duration); setIsExiting(false); }, [offer.id]);
+        useEffect(() => {
+          const timer = setInterval(() => {
+            setTimeLeft((prev) => {
+              if (prev <= 100) { clearInterval(timer); handleClose(); return 0; }
+              return prev - 100;
+            });
+          }, 100);
+          return () => clearInterval(timer);
+        }, [offer.id]);
+
+        const handleClose = () => { setIsExiting(true); setTimeout(onClose, 300); };
+        const progressPercent = (timeLeft / offer.duration) * 100;
+
+        return (
+          <div className={`fixed bottom-4 right-4 z-50 w-80 transition-all duration-300 ease-out transform ${isExiting ? 'translate-y-20 opacity-0' : 'translate-y-0 opacity-100'} animate-[slideUp_0.4s_cubic-bezier(0.16,1,0.3,1)]`}>
+            <div className="bg-slate-900/95 backdrop-blur-md border border-amber-500/30 rounded-2xl shadow-[0_0_30px_rgba(245,158,11,0.2)] overflow-hidden relative">
+              <div className="absolute top-0 left-0 h-1 bg-slate-800 w-full"><div className="h-full bg-amber-500 transition-all duration-100 ease-linear" style={{ width: `${progressPercent}%` }}></div></div>
+              <button onClick={handleClose} className="absolute top-2 right-2 text-slate-500 hover:text-white transition-colors p-1"><X size={16} /></button>
+              <div className="p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                      <div className={`p-2 rounded-lg bg-slate-800 ${offer.iconColor} animate-bounce`}><Gift size={24} /></div>
+                      <div><h3 className="font-bold text-white leading-tight">{offer.name}</h3><div className="flex items-center gap-1 text-[10px] text-amber-500 font-bold uppercase tracking-wider"><Timer size={10} /> Limited Offer</div></div>
+                  </div>
+                  <p className="text-xs text-slate-400 mb-4">{offer.description}</p>
+                  <div className="space-y-1 mb-4">{offer.items.map((item, idx) => (<div key={idx} className="flex justify-between text-xs text-slate-300"><span>{item.count}x {item.id === 'buff_sugar' ? 'Sugar Rush Vial' : item.id === 'repair_kit' ? "Baker's Glue" : 'Titanium Wrapper'}</span></div>))}</div>
+                  <button onClick={onBuy} disabled={!canAfford} className={`w-full py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${canAfford ? 'bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white shadow-lg' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}><div className="flex flex-col items-start leading-none"><span className="text-[10px] line-through opacity-70 decoration-red-500">{offer.originalCost}</span><span>{offer.cost} Bits</span></div><span className="ml-auto text-xs bg-black/20 px-2 py-1 rounded">-{Math.round(((offer.originalCost - offer.cost) / offer.originalCost) * 100)}%</span></button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // --- COMPONENT: QuestBoard ---
+      const QuestBoard = ({ state, onClaim }) => {
+        const getProgress = (type) => {
+          switch (type) {
+            case QuestType.TOTAL_CLICKS: return state.clickCount;
+            case QuestType.TOTAL_EARNED: return state.totalBitsEarned;
+            case QuestType.COLLECTION_SIZE: return new Set(state.cookies.map(c => c.name)).size;
+            case QuestType.UPGRADE_LEVELS: return state.upgrades.clickPowerLevel + state.upgrades.luckLevel + state.upgrades.autoClickerLevel;
+            default: return 0;
+          }
+        };
+
+        const sortedQuests = [...QUEST_DEFS].sort((a, b) => {
+          const isClaimedA = state.claimedQuestIds.includes(a.id);
+          const isClaimedB = state.claimedQuestIds.includes(b.id);
+          if (isClaimedA && !isClaimedB) return 1;
+          if (!isClaimedA && isClaimedB) return -1;
+          const progressA = getProgress(a.type);
+          const progressB = getProgress(b.type);
+          const isCompleteA = progressA >= a.target;
+          const isCompleteB = progressB >= b.target;
+          if (isCompleteA && !isCompleteB) return -1;
+          if (!isCompleteA && isCompleteB) return 1;
+          return 0;
+        });
+
+        return (
+          <div className="max-w-4xl mx-auto p-4">
+            <h2 className="text-2xl font-display font-bold text-white mb-2 flex items-center gap-3"><Scroll className="text-amber-500" /> Quest Log</h2>
+            <p className="text-slate-400 mb-6 text-sm">Complete milestones to earn extra Bits.</p>
+            <div className="grid gap-4">
+              {sortedQuests.map((quest) => {
+                const currentProgress = getProgress(quest.type);
+                const isClaimed = state.claimedQuestIds.includes(quest.id);
+                const isComplete = currentProgress >= quest.target;
+                const progressPercent = Math.min(100, (currentProgress / quest.target) * 100);
+                return (
+                  <div key={quest.id} className={`relative rounded-xl border p-4 transition-all ${isClaimed ? 'bg-slate-900/50 border-slate-800 opacity-60' : isComplete ? 'bg-slate-800 border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.1)]' : 'bg-slate-800 border-slate-700'}`}>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex-grow">
+                        <div className="flex items-center gap-2 mb-1"><h3 className={`font-bold ${isClaimed ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{quest.name}</h3>{isClaimed && <Check size={16} className="text-green-500" />}</div>
+                        <p className="text-sm text-slate-400 mb-3">{quest.description}</p>
+                        <div className="w-full max-w-md bg-slate-900 h-2.5 rounded-full overflow-hidden border border-white/5"><div className={`h-full transition-all duration-500 ${isComplete ? 'bg-green-500' : 'bg-amber-500'}`} style={{ width: `${progressPercent}%` }}></div></div>
+                        <div className="text-xs font-mono text-slate-500 mt-1">{Math.floor(currentProgress).toLocaleString()} / {quest.target.toLocaleString()}</div>
+                      </div>
+                      <div className="flex items-center gap-4 shrink-0">
+                          <div className="text-right hidden sm:block"><div className="text-xs text-slate-500 uppercase tracking-wider">Reward</div><div className="font-bold text-amber-400 flex items-center justify-end gap-1"><Coins size={14} /> {quest.reward.toLocaleString()}</div></div>
+                          <button onClick={() => !isClaimed && isComplete && onClaim(quest.id, quest.reward)} disabled={isClaimed || !isComplete} className={`px-6 py-2.5 rounded-lg font-bold text-sm transition-all flex items-center gap-2 min-w-[120px] justify-center ${isClaimed ? 'bg-slate-800 text-slate-600 cursor-default border border-slate-700' : isComplete ? 'bg-gradient-to-r from-green-600 to-green-500 text-white hover:scale-105 shadow-lg animate-pulse hover:animate-none' : 'bg-slate-900 text-slate-500 cursor-not-allowed border border-slate-800'}`}>{isClaimed ? 'Claimed' : isComplete ? <><Check size={16} /> Claim</> : <><Lock size={14} /> Locked</>}</button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      };
+
+      // --- COMPONENT: MiniGames ---
+      const MiniGames = ({ state, onEarnBits, onSpendBits, onConsumeToken, arcadeTokens }) => {
+        const [activeGame, setActiveGame] = useState('flip');
+        const CoinFlipGame = ({ onEarn, onSpend, tokens, consumeToken }) => {
+            const [betInput, setBetInput] = useState("100");
+            const [flipping, setFlipping] = useState(false);
+            const [result, setResult] = useState(null);
+            const [message, setMessage] = useState("Double or Nothing!");
+            const handleFlip = (choice) => {
+                if (flipping || tokens <= 0) { setMessage(tokens <= 0 ? "Need Arcade Token!" : "Wait..."); return; }
+                const betAmount = parseInt(betInput);
+                if (isNaN(betAmount) || betAmount <= 0) { setMessage("Invalid amount."); return; }
+                if (betAmount > state.bits) { setMessage("Not enough bits!"); return; }
+                if (!onSpend(betAmount)) return;
+                consumeToken();
+                setFlipping(true); setMessage("Flipping..."); setResult(null);
+                setTimeout(() => {
+                    const outcome = Math.random() < 0.5 ? 'heads' : 'tails';
+                    setResult(outcome); setFlipping(false);
+                    if (outcome === choice) { const winnings = betAmount * 2; onEarn(winnings); setMessage(`You Won ${winnings} Bits!`); } 
+                    else { setMessage("Lost... Try again?"); }
+                }, 1500);
+            };
+            return (<div className="text-center w-full max-w-md"><h3 className="text-2xl font-bold text-amber-500 mb-4">Cosmic Coin Flip</h3><div className="mb-8 h-32 flex items-center justify-center"><div className={`w-24 h-24 rounded-full border-4 border-amber-500 flex items-center justify-center text-4xl font-bold bg-amber-900/20 transition-all duration-500 ${flipping ? 'animate-[spin_0.5s_linear_infinite]' : ''}`}>{result === 'heads' ? 'H' : result === 'tails' ? 'T' : '?'}</div></div><p className="text-xl mb-6 font-mono text-white min-h-[2rem]">{message}</p><div className="flex gap-4 justify-center mb-6"><div className="flex flex-col items-start"><label className="text-xs text-slate-500 mb-1">Bet Amount</label><input type="number" value={betInput} onChange={(e) => setBetInput(e.target.value)} className="bg-black border border-slate-700 text-white rounded px-3 py-2 w-32 text-center focus:border-amber-500 outline-none" placeholder="Amount" /></div></div><div className="flex gap-4 justify-center"><button onClick={() => handleFlip('heads')} disabled={flipping || tokens <= 0} className="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-xl disabled:opacity-50">Heads</button><button onClick={() => handleFlip('tails')} disabled={flipping || tokens <= 0} className="bg-red-600 hover:bg-red-500 text-white font-bold py-3 px-8 rounded-xl disabled:opacity-50">Tails</button></div>{tokens <= 0 && <p className="text-red-400 text-xs mt-4">Out of Tokens!</p>}</div>);
+        };
+        const SpeedClickerGame = ({ onEarn, playsAvailable, onConsume }) => {
+            const [timeLeft, setTimeLeft] = useState(0);
+            const [clicks, setClicks] = useState(0);
+            const [active, setActive] = useState(false);
+            useEffect(() => { let timer; if (active && timeLeft > 0) timer = setInterval(() => setTimeLeft(prev => prev - 1), 1000); else if (active && timeLeft === 0) endGame(); return () => clearInterval(timer); }, [active, timeLeft]);
+            const startGame = () => { if (playsAvailable > 0) { onConsume(); setTimeLeft(10); setClicks(0); setActive(true); } };
+            const endGame = () => { setActive(false); const reward = clicks * 3; onEarn(reward); };
+            return (<div className="text-center w-full max-w-md"><h3 className="text-2xl font-bold text-amber-500 mb-2">Hyper Clicker</h3><p className="text-slate-400 mb-6 text-sm">Click as fast as you can in 10 seconds! (3 Bits / Click)</p>{!active ? (<div className="space-y-6"><div className="text-5xl font-bold text-white mb-4">{timeLeft === 0 && clicks > 0 ? `Score: ${clicks}` : 'Ready?'}</div>{clicks > 0 && <p className="text-green-400">Earned +{clicks * 3} Bits!</p>}<div className="flex flex-col items-center gap-2"><button onClick={startGame} disabled={playsAvailable <= 0} className={`font-bold py-4 px-12 rounded-full text-xl shadow-[0_0_20px_rgba(34,197,94,0.4)] transition-transform ${playsAvailable > 0 ? 'bg-green-600 hover:bg-green-500 text-white hover:scale-105' : 'bg-slate-800 text-slate-500 cursor-not-allowed shadow-none'}`}>{playsAvailable > 0 ? "START" : "Need Token"}</button></div></div>) : (<div className="space-y-8"><div className="flex justify-between text-xl font-mono font-bold"><span className="text-red-400">Time: {timeLeft}s</span><span className="text-blue-400">Clicks: {clicks}</span></div><button onClick={() => setClicks(c => c + 1)} className="w-48 h-48 rounded-full bg-slate-800 border-4 border-amber-500 active:scale-95 active:bg-amber-900/50 transition-all flex items-center justify-center mx-auto shadow-2xl"><MousePointer2 size={48} className="text-white" /></button></div>)}</div>);
+        };
+        const SlotsGame = ({ onEarn, onSpend, tokens, consumeToken }) => {
+             const SYMBOLS = ['🍒', '🍋', '🔔', '💎', '7️⃣'];
+             const [reels, setReels] = useState(['7️⃣', '7️⃣', '7️⃣']);
+             const [spinning, setSpinning] = useState(false);
+             const [message, setMessage] = useState("Spin for 200 Bits");
+             const spin = () => { if (spinning || tokens <= 0 || !onSpend(200)) { setMessage(tokens <= 0 ? "Need Arcade Token!" : "Not enough bits!"); return; } consumeToken(); setSpinning(true); setMessage("Spinning..."); let spins = 0; const interval = setInterval(() => { setReels([SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)], SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)], SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]]); spins++; if (spins > 10) { clearInterval(interval); finalizeSpin(); } }, 100); };
+             const finalizeSpin = () => { const finalReels = [SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)], SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)], SYMBOLS[Math.floor(Math.random() * SYMBOLS.length)]]; setReels(finalReels); setSpinning(false); if (finalReels[0] === finalReels[1] && finalReels[1] === finalReels[2]) { const symbol = finalReels[0]; let reward = 1000; if (symbol === '💎') reward = 5000; if (symbol === '7️⃣') reward = 10000; onEarn(reward); setMessage(`JACKPOT! +${reward} Bits`); } else if (finalReels[0] === finalReels[1] || finalReels[1] === finalReels[2] || finalReels[0] === finalReels[2]) { onEarn(300); setMessage("Pair! +300 Bits"); } else { setMessage("No match..."); } };
+             return (<div className="text-center w-full max-w-md"><h3 className="text-2xl font-bold text-amber-500 mb-2">Cosmic Slots</h3><p className="text-slate-400 mb-6 text-sm">Match 3 for Big Wins! Cost: 200 Bits</p><div className="bg-black border-4 border-yellow-600 rounded-xl p-6 mb-6 flex justify-center gap-4">{reels.map((s, i) => (<div key={i} className="w-16 h-24 bg-white text-4xl flex items-center justify-center rounded border-2 border-slate-300 shadow-inner">{s}</div>))}</div><div className="text-xl font-bold text-white mb-6 h-8">{message}</div><button onClick={spin} disabled={spinning || tokens <= 0} className="bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-3 px-12 rounded-full shadow-[0_5px_0_rgb(161,98,7)] active:shadow-none active:translate-y-1 transition-all disabled:opacity-50 disabled:cursor-not-allowed">{tokens > 0 ? "SPIN!" : "Need Token"}</button></div>);
+        };
+        return (
+          <div className="max-w-4xl mx-auto p-4">
+            <h2 className="text-2xl font-display font-bold text-white mb-2">High Stakes</h2>
+            <p className="text-slate-400 mb-6 text-sm">Gamble your Bits for a chance at fortune. Each game requires 1 Arcade Token.</p>
+            <div className="flex justify-center mb-6"><div className="bg-pink-900/20 border border-pink-500/30 text-pink-300 px-6 py-2 rounded-full flex items-center gap-2"><Ticket size={16} /><span className="font-bold">{arcadeTokens} Tokens Available</span></div></div>
+            <div className="flex gap-2 mb-6 overflow-x-auto pb-2 no-scrollbar justify-center">
+              <button onClick={() => setActiveGame('flip')} className={`flex items-center gap-2 px-6 py-3 rounded-xl border transition-all whitespace-nowrap ${activeGame === 'flip' ? 'bg-amber-500 text-black border-amber-400 font-bold shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}><Coins size={18} /> Coin Flip</button>
+              <button onClick={() => setActiveGame('speed')} className={`flex items-center gap-2 px-6 py-3 rounded-xl border transition-all whitespace-nowrap ${activeGame === 'speed' ? 'bg-amber-500 text-black border-amber-400 font-bold shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}><Zap size={18} /> Speed Clicker</button>
+              <button onClick={() => setActiveGame('slots')} className={`flex items-center gap-2 px-6 py-3 rounded-xl border transition-all whitespace-nowrap ${activeGame === 'slots' ? 'bg-amber-500 text-black border-amber-400 font-bold shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'}`}><Grid3X3 size={18} /> Cosmic Slots</button>
+            </div>
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 min-h-[400px] flex items-center justify-center relative">
+              {activeGame === 'flip' && <CoinFlipGame onEarn={onEarnBits} onSpend={onSpendBits} tokens={arcadeTokens} consumeToken={onConsumeToken} />}
+              {activeGame === 'speed' && <SpeedClickerGame onEarn={onEarnBits} playsAvailable={arcadeTokens} onConsume={onConsumeToken} />}
+              {activeGame === 'slots' && <SlotsGame onEarn={onEarnBits} onSpend={onSpendBits} tokens={arcadeTokens} consumeToken={onConsumeToken} />}
+            </div>
+          </div>
+        );
+      };
+
+      // --- APP ---
+      const INITIAL_STATE = {
+        bits: 0,
+        totalBitsEarned: 0,
+        clickCount: 0,
+        cookies: [],
+        inventoryItems: { 'repair_kit': 0, 'nano_patch': 0, 'shield': 0, 'buff_sugar': 0, 'plasma_battery': 0 },
+        upgrades: { clickPowerLevel: 1, luckLevel: 0, autoClickerLevel: 0, ascensionLevel: 0, critLevel: 0, durabilityLevel: 0, barterLevel: 0 },
+        activeEffects: { clickMultiplier: 1, clickMultiplierEndTime: 0, protectedClicks: 0, bonusAutoClickerEndTime: 0, shieldEndTime: 0 },
+        unlockedRarities: [],
+        activeCookieId: undefined,
+        settings: { soundEnabled: true, antiLag: false },
+        cheatMode: false,
+        chronoSpawnerUnlocked: false,
+        claimedQuestIds: [],
+        arcadeTokens: 1
+      };
+
+      const App = () => {
+        const [gameState, setGameState] = useState(INITIAL_STATE);
+        const [activeTab, setActiveTab] = useState('roll');
+        const [toast, setToast] = useState(null);
+        const [activeBundle, setActiveBundle] = useState(null);
+        const [showSecretInput, setShowSecretInput] = useState(false);
+        const [secretCodeInput, setSecretCodeInput] = useState('');
+
+        useEffect(() => {
+          const saved = localStorage.getItem('cookie_rng_save_v5');
+          if (saved) {
+            try {
+              const parsed = JSON.parse(saved);
+              setGameState(prev => ({
+                ...INITIAL_STATE,
+                ...parsed,
+                inventoryItems: { ...INITIAL_STATE.inventoryItems, ...parsed.inventoryItems },
+                upgrades: { ...INITIAL_STATE.upgrades, ...parsed.upgrades, ascensionLevel: parsed.upgrades.ascensionLevel ?? 0, critLevel: parsed.upgrades.critLevel ?? 0, durabilityLevel: parsed.upgrades.durabilityLevel ?? 0, barterLevel: parsed.upgrades.barterLevel ?? 0 },
+                activeEffects: { ...INITIAL_STATE.activeEffects, ...parsed.activeEffects },
+                settings: { ...INITIAL_STATE.settings, ...(parsed.settings || {}) },
+                cookies: parsed.cookies.map((c) => {
+                  const defDurability = RARITY_DURABILITY[c.rarity] || 100;
+                  return { ...c, durability: c.durability ?? defDurability, maxDurability: c.maxDurability ?? defDurability };
+                }),
+                cheatMode: parsed.cheatMode || false,
+                chronoSpawnerUnlocked: parsed.chronoSpawnerUnlocked || false,
+                claimedQuestIds: parsed.claimedQuestIds || [],
+                arcadeTokens: parsed.arcadeTokens ?? parsed.speedClickerPlays ?? 1
+              }));
+            } catch (e) { console.error("Save corrupted", e); }
+          }
+        }, []);
+
+        useEffect(() => { const timer = setTimeout(() => { localStorage.setItem('cookie_rng_save_v5', JSON.stringify(gameState)); }, 1000); return () => clearTimeout(timer); }, [gameState]);
+        useEffect(() => { if (toast) { const t = setTimeout(() => setToast(null), 2000); return () => clearTimeout(t); } }, [toast]);
+        useEffect(() => { const interval = setInterval(() => { if (!activeBundle && Math.random() < 0.15) { setActiveBundle(BUNDLES[Math.floor(Math.random() * BUNDLES.length)]); } }, 10000); return () => clearInterval(interval); }, [activeBundle]);
+
+        useEffect(() => {
+          const timer = setInterval(() => {
+              setGameState(prev => {
+                  const now = Date.now();
+                  let updates = {};
+                  let hasUpdate = false;
+                  if (prev.activeEffects.clickMultiplier > 1 && now > prev.activeEffects.clickMultiplierEndTime) {
+                      updates = { activeEffects: { ...prev.activeEffects, clickMultiplier: 1 } };
+                      hasUpdate = true;
+                  }
+                  return hasUpdate ? { ...prev, ...updates } : prev; 
+              });
+          }, 1000);
+          return () => clearInterval(timer);
+        }, []);
+
+        useEffect(() => {
+          if (gameState.upgrades.autoClickerLevel === 0) return;
+          const interval = setInterval(() => {
+            const collectionMultiplier = gameState.cookies.reduce((sum, cookie) => sum + (cookie.baseValue * 0.1), 0);
+            const baseAuto = gameState.upgrades.autoClickerLevel * 0.5;
+            const earnings = baseAuto * (1 + collectionMultiplier);
+            setGameState(prev => ({ ...prev, bits: prev.bits + earnings, totalBitsEarned: prev.totalBitsEarned + earnings }));
+          }, 1000);
+          return () => clearInterval(interval);
+        }, [gameState.upgrades.autoClickerLevel, gameState.cookies]);
+
+        useEffect(() => {
+            if (gameState.activeEffects.bonusAutoClickerEndTime <= Date.now()) return;
+            const interval = setInterval(() => {
+                if (gameState.activeEffects.bonusAutoClickerEndTime > Date.now()) {
+                  setGameState(prev => ({ ...prev, bits: prev.bits + 4, totalBitsEarned: prev.totalBitsEarned + 4 }));
+                } else { clearInterval(interval); }
+            }, 200);
+            return () => clearInterval(interval);
+        }, [gameState.activeEffects.bonusAutoClickerEndTime]);
+
+        const getClickPower = useCallback(() => {
+          const base = gameState.upgrades.clickPowerLevel;
+          let ascensionBonus = 0;
+          if (gameState.upgrades.ascensionLevel === 1) ascensionBonus = 3;
+          if (gameState.upgrades.ascensionLevel >= 2) ascensionBonus = 8;
+          const collectionBonus = gameState.cookies.reduce((sum, cookie) => sum + cookie.baseValue, 0);
+          const rawPower = base + ascensionBonus + (collectionBonus * 0.1);
+          return rawPower * gameState.activeEffects.clickMultiplier;
+        }, [gameState.upgrades.clickPowerLevel, gameState.upgrades.ascensionLevel, gameState.cookies, gameState.activeEffects.clickMultiplier]);
+
+        const activeCookie = gameState.activeCookieId 
+          ? gameState.cookies.find(c => c.id === gameState.activeCookieId) || null
+          : (gameState.cookies.length > 0 ? gameState.cookies.reduce((prev, current) => (prev.baseValue > current.baseValue) ? prev : current) : null);
+
+        const handleCookieClick = (isCrit) => {
+          let power = getClickPower();
+          if (isCrit) power *= 3;
+          setGameState(prev => {
+            let currentCookie = prev.activeCookieId ? prev.cookies.find(c => c.id === prev.activeCookieId) : null;
+            let nextActiveId = prev.activeCookieId;
+            if (!currentCookie && prev.cookies.length > 0) {
+                currentCookie = prev.cookies.reduce((p, c) => (p.baseValue > c.baseValue) ? p : c);
+                nextActiveId = currentCookie.id;
+            }
+            let nextCookies = prev.cookies;
+            let brokenMsg = null;
+            let nextProtectedClicks = prev.activeEffects.protectedClicks;
+            const isTimeShieldActive = prev.activeEffects.shieldEndTime > Date.now();
+            if (currentCookie && !prev.cheatMode) {
+               if (isTimeShieldActive) {} 
+               else if (nextProtectedClicks > 0) { nextProtectedClicks -= 1; } 
+               else {
+                   const damageSkipChance = prev.upgrades.durabilityLevel * 0.05;
+                   if (Math.random() >= damageSkipChance) {
+                       const newDurability = Math.max(0, currentCookie.durability - 1);
+                       if (newDurability <= 0) {
+                          nextCookies = prev.cookies.filter(c => c.id !== currentCookie.id);
+                          nextActiveId = undefined;
+                          brokenMsg = `Your ${currentCookie.name} crumbled into dust!`;
+                       } else {
+                          nextCookies = prev.cookies.map(c => c.id === currentCookie.id ? { ...c, durability: newDurability } : c);
+                       }
+                   }
+               }
+            }
+            if (brokenMsg) setToast({ msg: brokenMsg, type: 'error' });
+            return {
+              ...prev, bits: prev.bits + power, totalBitsEarned: prev.totalBitsEarned + power,
+              clickCount: prev.clickCount + 1, cookies: nextCookies, activeCookieId: nextActiveId,
+              activeEffects: { ...prev.activeEffects, protectedClicks: nextProtectedClicks }
+            };
+          });
+        };
+
+        const spendBits = (amount) => {
+          if (gameState.cheatMode) return true;
+          if (gameState.bits >= amount) { setGameState(prev => ({ ...prev, bits: prev.bits - amount })); return true; }
+          return false;
+        };
+
+        const addBits = (amount) => { setGameState(prev => ({ ...prev, bits: prev.bits + amount, totalBitsEarned: prev.totalBitsEarned + amount })); };
+        const handleRollComplete = (newCookie) => { setGameState(prev => ({ ...prev, cookies: [...prev.cookies, newCookie], unlockedRarities: Array.from(new Set([...prev.unlockedRarities, newCookie.rarity])), activeCookieId: newCookie.id })); };
+        const handleEquipCookie = (id) => { setGameState(prev => ({ ...prev, activeCookieId: id })); };
+        const handleSellCookie = (id) => { const cookie = gameState.cookies.find(c => c.id === id); if (!cookie) return; const sellValue = Math.floor(cookie.baseValue * 10); setGameState(prev => ({ ...prev, bits: prev.bits + sellValue, cookies: prev.cookies.filter(c => c.id !== id), activeCookieId: prev.activeCookieId === id ? undefined : prev.activeCookieId })); };
+        const toggleSound = () => { setGameState(prev => ({ ...prev, settings: { ...prev.settings, soundEnabled: !prev.settings.soundEnabled } })); };
+        const toggleAntiLag = () => { setGameState(prev => ({ ...prev, settings: { ...prev.settings, antiLag: !prev.settings.antiLag } })); setToast({ msg: !gameState.settings.antiLag ? "Anti-Lag Enabled." : "Anti-Lag Disabled.", type: 'info' }); };
+        
+        const applyItemEffect = (itemId) => {
+            let msg = "";
+            if (itemId === 'repair_kit') {
+                if (!activeCookie) return "No active cookie!";
+                if (activeCookie.durability >= activeCookie.maxDurability) return "Cookie pristine!";
+                const amountToHeal = Math.floor(activeCookie.maxDurability * 0.5);
+                setGameState(prev => ({ ...prev, cookies: prev.cookies.map(c => c.id === activeCookie.id ? { ...c, durability: Math.min(c.maxDurability, c.durability + amountToHeal) } : c) }));
+                msg = "Cookie repaired!";
+            } else if (itemId === 'nano_patch') {
+                if (!activeCookie) return "No active cookie!";
+                setGameState(prev => ({ ...prev, cookies: prev.cookies.map(c => c.id === activeCookie.id ? { ...c, durability: c.maxDurability } : c) }));
+                msg = "Cookie fully restored!";
+            } else if (itemId === 'shield') {
+                 if (gameState.activeEffects.protectedClicks > 0) return "Shield active!";
+                 setGameState(prev => ({ ...prev, activeEffects: { ...prev.activeEffects, protectedClicks: prev.activeEffects.protectedClicks + 100 } }));
+                 msg = "Titanium Wrapper applied!";
+            } else if (itemId === 'buff_sugar') {
+                 if (gameState.activeEffects.clickMultiplier > 1) return "Power boost active!";
+                 setGameState(prev => ({ ...prev, activeEffects: { ...prev.activeEffects, clickMultiplier: 2, clickMultiplierEndTime: Math.max(Date.now(), prev.activeEffects.clickMultiplierEndTime) + 60000 } }));
+                 msg = "Sugar Rush! 2x Power.";
+            } else if (itemId === 'plasma_battery') {
+                 if (gameState.activeEffects.clickMultiplier > 1) return "Power boost active!";
+                 setGameState(prev => ({ ...prev, activeEffects: { ...prev.activeEffects, clickMultiplier: 5, clickMultiplierEndTime: Math.max(Date.now(), prev.activeEffects.clickMultiplierEndTime) + 40000 } }));
+                 msg = "Plasma Overcharge! 5x Power.";
+            }
+            return msg;
+        };
+
+        const handleUseItem = (itemId) => {
+            if ((gameState.inventoryItems[itemId] || 0) <= 0) { setToast({ msg: "Not in inventory!", type: 'error' }); return; }
+            const resultMsg = applyItemEffect(itemId);
+            if (resultMsg.includes("active") || resultMsg.includes("pristine")) { setToast({ msg: resultMsg, type: 'info' }); return; }
+            setGameState(prev => ({ ...prev, inventoryItems: { ...prev.inventoryItems, [itemId]: Math.max(0, (prev.inventoryItems[itemId] || 0) - 1) } }));
+            setToast({ msg: resultMsg, type: 'success' });
+        };
+
+        const handleBuyItem = (itemId, cost) => {
+            if (!spendBits(cost)) { setToast({ msg: "Not enough Bits!", type: 'error' }); return; }
+            if (itemId === 'clicker_ticket') { setGameState(prev => ({ ...prev, arcadeTokens: (prev.arcadeTokens || 0) + 1 })); setToast({ msg: "Token Purchased!", type: 'success' }); return; }
+            setGameState(prev => ({ ...prev, inventoryItems: { ...prev.inventoryItems, [itemId]: (prev.inventoryItems[itemId] || 0) + 1 } }));
+            setToast({ msg: "Item stored in Inventory!", type: 'success' });
+        };
+
+        const handleConsumeToken = () => { setGameState(prev => ({ ...prev, arcadeTokens: Math.max(0, (prev.arcadeTokens || 0) - 1) })); };
+        const handleBuyBundle = () => {
+            if (!activeBundle) return;
+            if (!spendBits(activeBundle.cost)) { setToast({ msg: "Not enough Bits!", type: 'error' }); return; }
+            setGameState(prev => {
+                const newInventory = { ...prev.inventoryItems };
+                activeBundle.items.forEach(item => { newInventory[item.id] = (newInventory[item.id] || 0) + item.count; });
+                return { ...prev, inventoryItems: newInventory };
+            });
+            setToast({ msg: "Bundle items added!", type: 'success' });
+            setActiveBundle(null);
+        };
+
+        const handleOpenCrate = async (crateId) => {
+            let baseCost = 0;
+            if (crateId === 'crate_rusty') baseCost = 500; else if (crateId === 'crate_iron') baseCost = 2500; else if (crateId === 'crate_gilded') baseCost = 10000; else if (crateId === 'crate_diamond') baseCost = 50000;
+            const discount = Math.min(0.2, gameState.upgrades.barterLevel * 0.02);
+            const cost = Math.floor(baseCost * (1 - discount));
+            if (!spendBits(cost)) { setToast({ msg: "Not enough Bits!", type: 'error' }); return { type: 'bits', value: 0, message: 'Failed' }; }
+            
+            let type = 'bits'; let value = 0; let message = ""; let newCookie = null; let buffDuration = 0;
+            const rand = Math.random();
+            if (crateId === 'crate_rusty') { if (rand < 0.2) { value = Math.floor(Math.random()*200)+100; message = "Scraps."; } else if (rand < 0.9) { value = Math.floor(Math.random()*500)+400; message = "Solid."; } else { value = 1500; message = "Lucky!"; } } 
+            else if (crateId === 'crate_iron') { if (rand < 0.3) { type = 'repair'; message = "Repair Kit!"; } else if (rand < 0.8) { value = Math.floor(Math.random()*1000)+1500; message = "Iron earnings."; } else { value = 4000; message = "Heavy payout!"; } }
+            else if (crateId === 'crate_gilded') { if (rand < 0.4) { value = 6000; message = "Disappointing..."; } else if (rand < 0.8) { value = 15000; message = "Golden Riches!"; } else if (rand < 0.95) { type = 'frenzy'; buffDuration = 20000; message = "FRENZY!"; } else { type = 'jackpot'; value = 50000; message = "JACKPOT!"; } }
+            else if (crateId === 'crate_diamond') {
+                if (rand < 0.75) { value = 7500; message = "Shiny Cache"; } else if (rand < 0.85) { type = 'buff'; message = "Sugar Vial found!"; } else if (rand < 0.90) { type = 'frenzy'; buffDuration = 20000; message = "FRENZY!"; } 
+                else if (rand < 0.95) { type = 'jackpot'; newCookie = { ...EXCLUSIVE_COOKIES.DIAMOND, dateObtained: Date.now(), id: `c_diamond_${Date.now()}`, durability: EXCLUSIVE_COOKIES.DIAMOND.maxDurability }; message = "Diamond Cookie!"; } 
+                else if (rand < 0.99) { type = 'jackpot'; value = 50000; message = "JACKPOT!"; } else { type = 'jackpot'; newCookie = { ...EXCLUSIVE_COOKIES.MOCHI, dateObtained: Date.now(), id: `c_mochi_${Date.now()}`, durability: EXCLUSIVE_COOKIES.MOCHI.maxDurability }; message = "Mochi Cookie!"; }
+            }
+            if (value > 0) addBits(value);
+            if (type === 'repair') { setGameState(prev => ({ ...prev, inventoryItems: { ...prev.inventoryItems, 'repair_kit': (prev.inventoryItems['repair_kit'] || 0) + 1 } })); message = "Repair Kit added"; }
+            if (type === 'buff') { if (message.includes("Sugar Vial")) { setGameState(prev => ({ ...prev, inventoryItems: { ...prev.inventoryItems, 'buff_sugar': (prev.inventoryItems['buff_sugar'] || 0) + 1 } })); message = "Sugar Vial added"; } else { setGameState(prev => ({ ...prev, activeEffects: { ...prev.activeEffects, bonusAutoClickerEndTime: Date.now() + 20000 } })); } }
+            if (newCookie) { setGameState(prev => ({ ...prev, cookies: [...prev.cookies, newCookie], unlockedRarities: Array.from(new Set([...prev.unlockedRarities, newCookie.rarity])) })); }
+            if (type === 'frenzy') { setGameState(prev => ({ ...prev, activeEffects: { ...prev.activeEffects, clickMultiplier: 5, clickMultiplierEndTime: Date.now() + buffDuration } })); }
+            return { type, value, message };
+        };
+
+        const buyUpgrade = (type) => {
+            if (gameState.cheatMode) { setGameState(prev => { const upgrades = { ...prev.upgrades }; upgrades.luckLevel=5; upgrades.autoClickerLevel=5; upgrades.ascensionLevel=2; upgrades.critLevel=10; upgrades.durabilityLevel=10; upgrades.barterLevel=10; return { ...prev, upgrades }; }); setToast({ msg: "MAXIMIZED.", type: 'success' }); return; }
+            const upgradeKeyMap = { clickPower: 'clickPowerLevel', luck: 'luckLevel', autoClicker: 'autoClickerLevel', ascension: 'ascensionLevel', crit: 'critLevel', durability: 'durabilityLevel', barter: 'barterLevel' };
+            const upgradeKey = upgradeKeyMap[type];
+            const currentLevel = gameState.upgrades[upgradeKey];
+            const cost = UPGRADE_COSTS[type](currentLevel);
+            if (type === 'ascension') {
+                if (gameState.bits >= cost) {
+                    setGameState(prev => ({ ...INITIAL_STATE, bits: 0, totalBitsEarned: prev.totalBitsEarned, clickCount: 0, cookies: [], inventoryItems: {}, upgrades: { ...INITIAL_STATE.upgrades, ascensionLevel: prev.upgrades.ascensionLevel + 1 }, activeEffects: INITIAL_STATE.activeEffects, unlockedRarities: [], settings: prev.settings, cheatMode: prev.cheatMode, chronoSpawnerUnlocked: prev.chronoSpawnerUnlocked, claimedQuestIds: prev.claimedQuestIds }));
+                    setToast({ msg: "ASCENSION ACHIEVED.", type: 'success' }); setActiveTab('roll');
+                } else { setToast({ msg: "Not enough Bits.", type: 'error' }); }
+                return;
+            }
+            if (spendBits(cost)) { setGameState(prev => ({ ...prev, upgrades: { ...prev.upgrades, [upgradeKey]: currentLevel + 1 } })); }
+        };
+
+        const handleClaimQuest = (questId, reward) => { setGameState(prev => ({ ...prev, bits: prev.bits + reward, totalBitsEarned: prev.totalBitsEarned + reward, claimedQuestIds: [...prev.claimedQuestIds, questId] })); setToast({ msg: `Quest Complete! +${reward} Bits`, type: 'success' }); };
+        const handleSpawnChrono = () => { const spawnedCookie = { id: `c_chrono_spawn_${Date.now()}`, name: "Replicated Chrono Cookie", description: "A cookie duplicated from the timeline.", rarity: Rarity.DIVINE, baseValue: 100, colorHex: '#06B6D4', dateObtained: Date.now(), durability: Number.MAX_SAFE_INTEGER, maxDurability: Number.MAX_SAFE_INTEGER }; setGameState(prev => ({ ...prev, cookies: [...prev.cookies, spawnedCookie], unlockedRarities: Array.from(new Set([...prev.unlockedRarities, Rarity.DIVINE])) })); setToast({ msg: "Chrono Cookie Materialized.", type: 'success' }); };
+        const handleSecretSubmit = (e) => {
+            e.preventDefault(); const code = secretCodeInput.trim().toLowerCase();
+            if (code === "chronocookie") { setGameState(prev => ({ ...prev, bits: 999_999_999_999_999, cheatMode: true })); setToast({ msg: "GOD MODE ACTIVE.", type: 'success' }); setShowSecretInput(false); setSecretCodeInput(''); } 
+            else if (code === "chronocookie1") { const indestructibleCookie = { id: `c_chrono_infinite_${Date.now()}`, name: "Eternal Chrono Cookie", description: "Frozen in time.", rarity: Rarity.DIVINE, baseValue: 100, colorHex: '#06B6D4', dateObtained: Date.now(), durability: Number.MAX_SAFE_INTEGER, maxDurability: Number.MAX_SAFE_INTEGER }; setGameState(prev => ({ ...prev, bits: prev.bits + 5000000, cookies: [...prev.cookies, indestructibleCookie], unlockedRarities: Array.from(new Set([...prev.unlockedRarities, Rarity.DIVINE])), activeCookieId: indestructibleCookie.id, activeEffects: { ...prev.activeEffects, clickMultiplier: 5, clickMultiplierEndTime: Date.now() + (1000*60*60*24*365*100) }, chronoSpawnerUnlocked: true })); setToast({ msg: "ETERNAL POWER.", type: 'success' }); setSecretCodeInput(''); } 
+            else { setToast({ msg: "ACCESS DENIED", type: 'error' }); setSecretCodeInput(''); }
+        };
+
+        return (
+          <div className="min-h-screen bg-[#05010a] text-purple-50 flex flex-col md:flex-row max-w-7xl mx-auto overflow-hidden relative font-sans selection:bg-purple-500/30 selection:text-white">
+            <div className="fixed inset-0 z-0 pointer-events-none">
+                <div className="absolute inset-0 bg-[#05010a]"></div>
+                {!gameState.settings.antiLag && (<>
+                    <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_#2e1065_0%,_#000000_100%)] opacity-40"></div>
+                    <div className="absolute top-[-10%] right-[-10%] w-[80vw] h-[80vw] bg-purple-900/20 rounded-full blur-[100px] animate-pulse"></div>
+                    <div className="absolute bottom-[-10%] left-[-10%] w-[60vw] h-[60vw] bg-indigo-900/20 rounded-full blur-[100px] animate-pulse delay-1000"></div>
+                    <div className="absolute inset-0 opacity-30" style={{ backgroundImage: 'radial-gradient(white 1px, transparent 1px)', backgroundSize: '50px 50px' }}></div>
+                </>)}
+            </div>
+            <button onClick={() => setShowSecretInput(true)} className="fixed right-0 top-1/2 -translate-y-1/2 w-10 h-24 bg-purple-900/50 hover:bg-purple-600 border-l-2 border-purple-500 z-[999] cursor-pointer shadow-lg backdrop-blur-sm flex items-center justify-center transition-all duration-300 group rounded-l-xl" title="Dev Tools"><span className="-rotate-90 text-[10px] font-bold text-purple-200 group-hover:text-white uppercase tracking-widest whitespace-nowrap">Secret</span></button>
+            {showSecretInput && (<div className="fixed inset-0 z-[1000] bg-black/90 flex items-center justify-center p-4 backdrop-blur-md animate-[fadeIn_0.2s]"><div className="w-full max-w-lg bg-[#0a0a0a] border border-green-500/30 rounded-lg p-8 shadow-[0_0_100px_rgba(34,197,94,0.1)] relative overflow-hidden">{!gameState.settings.antiLag && (<div className="absolute inset-0 pointer-events-none opacity-10 bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] z-0 bg-[length:100%_2px,3px_100%]"></div>)}<button onClick={() => setShowSecretInput(false)} className="absolute top-4 right-4 text-green-700 hover:text-green-400 transition-colors z-10"><X size={24} /></button><div className="relative z-10"><div className="flex items-center gap-3 mb-8 text-green-500 animate-pulse"><Terminal size={32} /><h3 className="font-mono text-2xl tracking-[0.2em] font-bold">SYSTEM OVERRIDE</h3></div>{gameState.chronoSpawnerUnlocked && (<button type="button" onClick={handleSpawnChrono} className="w-full mb-8 bg-cyan-900/20 border border-cyan-500 text-cyan-400 font-mono py-4 hover:bg-cyan-500 hover:text-black transition-all uppercase tracking-[0.2em] font-bold flex items-center justify-center gap-2 group shadow-[0_0_20px_rgba(6,182,212,0.2)]"><Infinity size={20} className="group-hover:animate-spin" /><span>Summon Chrono Cookie</span><Infinity size={20} className="group-hover:animate-spin" /></button>)}<form onSubmit={handleSecretSubmit}><div className="mb-2 text-green-800 font-mono text-xs uppercase tracking-widest">Authentication Required</div><input autoFocus type="text" value={secretCodeInput} onChange={(e) => setSecretCodeInput(e.target.value)} className="w-full bg-black border-2 border-green-900 text-green-400 font-mono p-4 text-xl outline-none focus:border-green-500 placeholder-green-900/30 tracking-widest uppercase transition-colors" placeholder="ENTER CODE..." /><button type="submit" className="w-full mt-6 bg-green-900/10 border border-green-500/30 text-green-500 font-mono py-4 hover:bg-green-500 hover:text-black transition-all uppercase tracking-[0.2em] font-bold">Execute Sequence</button></form></div></div></div>)}
+            {toast && (<div className="absolute top-10 left-1/2 -translate-x-1/2 z-[100] animate-[popIn_0.3s_ease-out]"><div className={`px-6 py-3 rounded-full shadow-2xl font-bold border border-white/10 ${toast.type === 'error' ? 'bg-red-600 text-white' : toast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-blue-600 text-white'}`}>{toast.msg}</div></div>)}
+            {activeBundle && (<BundlePopup offer={activeBundle} onClose={() => setActiveBundle(null)} onBuy={handleBuyBundle} canAfford={gameState.bits >= activeBundle.cost || !!gameState.cheatMode} />)}
+            <div className="w-full md:w-1/3 min-h-[40vh] md:min-h-screen border-b md:border-b-0 md:border-r border-white/10 bg-black/40 backdrop-blur-xl flex flex-col relative z-10 shadow-2xl">
+              <div className="p-6 border-b border-white/5 flex justify-between items-start">
+                <div><h1 className="text-2xl font-display font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-200 via-fuchsia-200 to-indigo-200 drop-shadow-sm">Infinite Void</h1><p className="text-xs text-purple-300/50 font-mono mt-1 tracking-wider">Power: {getClickPower().toFixed(1)} / click</p></div>
+                <div className="flex gap-2">
+                    <button onClick={toggleAntiLag} className={`p-2 rounded-full transition-colors ${gameState.settings.antiLag ? 'text-green-400 bg-green-900/20' : 'text-slate-400 bg-slate-900/50 hover:text-white'}`} title="Anti-Lag">{gameState.settings.antiLag ? <MonitorX size={20} /> : <Monitor size={20} />}</button>
+                    <button onClick={toggleSound} className={`p-2 rounded-full transition-colors ${gameState.settings.soundEnabled ? 'text-purple-400 bg-purple-900/20' : 'text-gray-600 bg-gray-900/50'}`} title="Sound">{gameState.settings.soundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}</button>
+                </div>
+              </div>
+              <div className="flex-grow flex items-center justify-center"><CookieClicker state={gameState} onCookieClick={handleCookieClick} clickPower={getClickPower()} selectedCookie={activeCookie} soundEnabled={gameState.settings.soundEnabled} critChance={gameState.upgrades.critLevel * 0.05} antiLag={gameState.settings.antiLag} /></div>
+              <div className="p-4 text-center border-t border-white/5 text-xs text-purple-400/60"><div><span className="block text-purple-200 font-bold text-sm">{gameState.clickCount}</span>Total Clicks</div></div>
+            </div>
+            <div className="w-full md:w-2/3 flex flex-col h-screen overflow-hidden relative z-10">
+              <div className="flex border-b border-white/5 bg-black/40 backdrop-blur-xl overflow-x-auto no-scrollbar">
+                <button onClick={() => setActiveTab('roll')} className={`flex-1 py-4 px-2 min-w-[80px] flex items-center justify-center gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider transition-colors ${activeTab === 'roll' ? 'text-purple-400 bg-white/5 border-b-2 border-purple-500' : 'text-gray-500 hover:text-purple-300'}`}><CookieIcon size={16} /> <span className="hidden sm:inline">Summon</span></button>
+                <button onClick={() => setActiveTab('games')} className={`flex-1 py-4 px-2 min-w-[80px] flex items-center justify-center gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider transition-colors ${activeTab === 'games' ? 'text-purple-400 bg-white/5 border-b-2 border-purple-500' : 'text-gray-500 hover:text-purple-300'}`}><Dice5 size={16} /> <span className="hidden sm:inline">Gamble</span></button>
+                <button onClick={() => setActiveTab('inventory')} className={`flex-1 py-4 px-2 min-w-[80px] flex items-center justify-center gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider transition-colors ${activeTab === 'inventory' ? 'text-purple-400 bg-white/5 border-b-2 border-purple-500' : 'text-gray-500 hover:text-purple-300'}`}><LayoutGrid size={16} /> <span className="hidden sm:inline">Inv</span></button>
+                <button onClick={() => setActiveTab('quests')} className={`flex-1 py-4 px-2 min-w-[80px] flex items-center justify-center gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider transition-colors ${activeTab === 'quests' ? 'text-purple-400 bg-white/5 border-b-2 border-purple-500' : 'text-gray-500 hover:text-purple-300'}`}><Scroll size={16} /> <span className="hidden sm:inline">Quests</span></button>
+                <button onClick={() => setActiveTab('crates')} className={`flex-1 py-4 px-2 min-w-[80px] flex items-center justify-center gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider transition-colors ${activeTab === 'crates' ? 'text-purple-400 bg-white/5 border-b-2 border-purple-500' : 'text-gray-500 hover:text-purple-300'}`}><Package size={16} /> <span className="hidden sm:inline">Crates</span></button>
+                <button onClick={() => setActiveTab('upgrades')} className={`flex-1 py-4 px-2 min-w-[80px] flex items-center justify-center gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider transition-colors ${activeTab === 'upgrades' ? 'text-purple-400 bg-white/5 border-b-2 border-purple-500' : 'text-gray-500 hover:text-purple-300'}`}><ArrowUpCircle size={16} /> <span className="hidden sm:inline">Tech</span></button>
+                <button onClick={() => setActiveTab('shop')} className={`flex-1 py-4 px-2 min-w-[80px] flex items-center justify-center gap-2 font-bold text-[10px] sm:text-xs uppercase tracking-wider transition-colors ${activeTab === 'shop' ? 'text-purple-400 bg-white/5 border-b-2 border-purple-500' : 'text-gray-500 hover:text-purple-300'}`}><ShoppingBag size={16} /> <span className="hidden sm:inline">Shop</span></button>
+              </div>
+              <div className="flex-grow overflow-y-auto bg-transparent p-4 relative no-scrollbar">
+                <div className="relative z-10">
+                  {activeTab === 'roll' && (<div className="animate-[fadeIn_0.3s_ease-out]"><div className="text-center mb-8 mt-4"><h2 className="text-3xl font-display font-bold text-white mb-2 drop-shadow-md">Cookie Summoning</h2><p className="text-purple-200/60">Spend bits to obtain rare and mythical cookies from the void.</p></div><RngSystem state={gameState} onRollComplete={handleRollComplete} spendBits={spendBits} costReductionLevel={gameState.upgrades.barterLevel} antiLag={gameState.settings.antiLag} /></div>)}
+                  {activeTab === 'inventory' && (<div className="animate-[fadeIn_0.3s_ease-out]"><Inventory state={gameState} onSell={handleSellCookie} onEquip={handleEquipCookie} onUseItem={handleUseItem} /></div>)}
+                  {activeTab === 'quests' && (<div className="animate-[fadeIn_0.3s_ease-out]"><QuestBoard state={gameState} onClaim={handleClaimQuest} /></div>)}
+                  {activeTab === 'crates' && (<div className="animate-[fadeIn_0.3s_ease-out]"><CrateRoom state={gameState} onOpenCrate={handleOpenCrate} costReductionLevel={gameState.upgrades.barterLevel} /></div>)}
+                  {activeTab === 'games' && (<div className="animate-[fadeIn_0.3s_ease-out]"><MiniGames state={gameState} onEarnBits={addBits} onSpendBits={spendBits} onConsumeToken={handleConsumeToken} arcadeTokens={gameState.arcadeTokens} /></div>)}
+                  {activeTab === 'upgrades' && (<div className="animate-[fadeIn_0.3s_ease-out]"><div className="text-center mb-8 mt-4"><h2 className="text-3xl font-display font-bold text-white mb-2 drop-shadow-md">Tech Upgrades</h2><p className="text-purple-200/60">Enhance your clicking power and luck stats.</p></div><Upgrades state={gameState} buyUpgrade={buyUpgrade} antiLag={gameState.settings.antiLag} /></div>)}
+                  {activeTab === 'shop' && (<div className="animate-[fadeIn_0.3s_ease-out]"><ItemShop state={gameState} onBuy={handleBuyItem} costReductionLevel={gameState.upgrades.barterLevel} /></div>)}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+    </script>
+  </body>
+</html>
